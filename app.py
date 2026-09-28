@@ -1,4 +1,3 @@
-import json
 import os
 from pathlib import Path
 import queue
@@ -8,6 +7,7 @@ import time
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from core import load_queries, run_query, export_csv
+from settings import load_settings, save_settings
 
 ROOT = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent
 SETTINGS = Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'VideoUploadCheck' / 'connection.json'
@@ -36,14 +36,15 @@ class App(tk.Tk):
         conn = ttk.LabelFrame(outer, text='数据库连接', padding=12)
         conn.pack(fill='x')
         defaults = {'host': '', 'port': '3306', 'database': '', 'user': '', 'password': '', 'ssl_ca': ''}
-        settings_error = False
+        settings_warning = ''
+        remember = True
         try:
-            saved = json.loads(SETTINGS.read_text(encoding='utf-8'))
-            defaults.update({k: str(saved[k]) for k in defaults if k != 'password' and k in saved})
-        except FileNotFoundError:
-            pass
+            saved, settings_warning = load_settings(SETTINGS)
+            defaults.update({k: saved[k] for k in defaults if k in saved})
+            remember = saved.get('remember_password', True)
         except (OSError, ValueError, TypeError):
-            settings_error = True
+            settings_warning = '保存的连接信息无法读取，请重新填写并保存。'
+        self.remember_password = tk.BooleanVar(value=remember)
         labels = [('host', '地址'), ('port', '端口'), ('database', '数据库'), ('user', '用户名'), ('password', '密码'), ('ssl_ca', 'CA 证书路径（可选）')]
         for i, (key, label) in enumerate(labels):
             row, col = divmod(i, 3)
@@ -55,8 +56,8 @@ class App(tk.Tk):
         buttons.grid(row=4, column=0, columnspan=3, sticky='w')
         self.test = ttk.Button(buttons, text='测试连接', command=lambda: self.start(True))
         self.test.pack(side='left')
-        ttk.Button(buttons, text='保存连接信息（不含密码）', command=self.save).pack(side='left', padx=10)
-        ttk.Label(buttons, text='密码仅在本次运行中使用').pack(side='left')
+        ttk.Button(buttons, text='保存连接信息', command=self.save).pack(side='left', padx=10)
+        ttk.Checkbutton(buttons, text='记住密码（本机加密保存）', variable=self.remember_password).pack(side='left')
         panel = ttk.LabelFrame(outer, text='固定查询', padding=12)
         panel.pack(fill='x', pady=12)
         self.choice = ttk.Combobox(panel, state='readonly')
@@ -96,8 +97,8 @@ class App(tk.Tk):
             self.execute.configure(state='disabled')
             self.status.configure(text='查询配置无效')
             self.after(100, lambda msg=str(exc): messagebox.showerror('查询配置错误', msg))
-        if settings_error:
-            self.after(150, lambda: messagebox.showwarning('连接配置', '保存的连接信息无法读取，请重新填写。'))
+        if settings_warning:
+            self.after(150, lambda: messagebox.showwarning('连接配置', settings_warning))
         self.after(100, self.poll)
 
     def change_query(self, event=None):
@@ -128,12 +129,9 @@ class App(tk.Tk):
     def save(self):
         try:
             data = self.config()
-            data.pop('password')
-            SETTINGS.parent.mkdir(parents=True, exist_ok=True)
-            temp = SETTINGS.with_suffix('.tmp')
-            temp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-            temp.replace(SETTINGS)
-            messagebox.showinfo('已保存', '连接信息已保存，密码未保存。')
+            save_settings(SETTINGS, data, self.remember_password.get())
+            message = '连接信息及密码已保存，下次启动自动填入。' if self.remember_password.get() else '连接信息已保存，已移除之前保存的密码。'
+            messagebox.showinfo('已保存', message)
         except (ValueError, OSError) as exc:
             messagebox.showerror('无法保存', str(exc))
 
@@ -148,6 +146,11 @@ class App(tk.Tk):
                 raise ValueError('请填写所有查询参数')
         except (ValueError, IndexError) as exc:
             messagebox.showerror('请检查输入', str(exc))
+            return
+        try:
+            save_settings(SETTINGS, config, self.remember_password.get())
+        except (OSError, ValueError) as exc:
+            messagebox.showerror('连接信息保存失败', str(exc))
             return
         self.busy = True
         self.test.configure(state='disabled')
