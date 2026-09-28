@@ -27,5 +27,11 @@
         "end_time"
       ]
     ]
+  },
+  {
+    "name": "煤矿视频与刻录机通道对应",
+    "description": "按视频编码匹配煤矿和两台刻录机；同时匹配时优先显示 234.9。未匹配字段为空，本查询不判定上传是否成功。",
+    "sql": "SELECT CASE WHEN a.channel_id LIKE '%150622000013200031%' THEN '利民' WHEN a.channel_id LIKE '%150622000013200063%' THEN '黄白茨' WHEN a.channel_id LIKE '%150622000013200096%' THEN '骆驼山' WHEN a.channel_id LIKE '%150622000013200084%' THEN '公务素' WHEN a.channel_id LIKE '%150622000013200075%' THEN '路天' WHEN a.channel_id LIKE '%150622000013200052%' THEN '五虎山' WHEN a.channel_id LIKE '%150622000013200040%' THEN '老石旦' END AS `煤矿名称`, a.name AS `视频名称`, COALESCE(b.id, c.id) AS `通道编码`, CASE WHEN b.id IS NOT NULL THEN '234.9刻录机' WHEN c.id IS NOT NULL THEN '234.10刻录机' END AS `刻录机来源`, a.channel_id AS `视频编码`, a.address AS `地址` FROM `wvp_device_channel` AS a LEFT JOIN `9video` AS b ON a.channel_id = b.name LEFT JOIN `10video` AS c ON a.channel_id = c.name ORDER BY `煤矿名称`, b.id",
+    "params": []
   }
 ]

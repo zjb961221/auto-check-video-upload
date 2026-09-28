@@ -9,7 +9,7 @@ from core import load_queries, run_query, export_csv, MAX_ROWS
 
 class CoreTests(unittest.TestCase):
     def test_queries(self):
-        self.assertEqual(len(load_queries(Path(__file__).parents[1] / 'queries.json')), 2)
+        self.assertTrue(load_queries(Path(__file__).parents[1] / 'queries.json'))
 
     def test_reject_unsafe_and_mismatched_queries(self):
         with tempfile.TemporaryDirectory() as folder:

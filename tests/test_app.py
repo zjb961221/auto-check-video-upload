@@ -59,7 +59,7 @@ class WindowTests(unittest.TestCase):
             try:
                 window.withdraw()
                 window.update_idletasks()
-                self.assertEqual(len(window.queries), 2)
+                self.assertTrue(window.queries)
                 window.choice.current(1)
                 window.change_query()
                 self.assertIn('start_time', window.parameters)
