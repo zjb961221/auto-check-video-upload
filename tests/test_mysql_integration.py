@@ -42,3 +42,65 @@ class MySQLIntegrationTests(unittest.TestCase):
         with self.assertRaises(pymysql.MySQLError):
             run_query(self.config, 'SELECT absent FROM samples', {})
         self.assertEqual(run_query(self.config, 'SELECT 1', {})[1][0], (1,))
+
+
+@unittest.skipUnless(os.environ.get('VIDEO_CHECK_MYSQL_TEST') == '1', 'Requires isolated MySQL integration fixture')
+class MySQLUpdateIntegrationTests(unittest.TestCase):
+    def setUp(self):
+        import pymysql
+        from updates import parse_update, validate_parameter_spec
+        self.config = dict(host='127.0.0.1', port='3306', database='video_check_test', user='fixture', password='fixture-test-only')
+        self.conn = pymysql.connect(**(self.config | {'port':3306}), autocommit=True)
+        with self.conn.cursor() as cur:
+            cur.execute('DROP TABLE IF EXISTS updates_fixture')
+            cur.execute('CREATE TABLE updates_fixture (id INT PRIMARY KEY, name VARCHAR(30) UNIQUE) ENGINE=InnoDB')
+            cur.executemany('INSERT INTO updates_fixture VALUES (%s,%s)', [(1,'a'), (2,'b')])
+        self.operation = dict(name='fixture', sql='UPDATE updates_fixture SET name=%(new)s WHERE id >= %(start)s',
+                              max_rows=2, params=[dict(name='new',type='text'),dict(name='start',type='integer')])
+        self.operation['compiled'] = parse_update(self.operation['sql'])
+        validate_parameter_spec(self.operation)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def rows(self):
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT id,name FROM updates_fixture ORDER BY id')
+            return cur.fetchall()
+
+    def test_preview_and_successful_commit(self):
+        from updates import preview_update, apply_update
+        snapshot = preview_update(self.config, self.operation, {'new':'new','start':'2'})
+        self.assertEqual(self.rows(), ((1,'a'), (2,'b')))
+        self.assertEqual(apply_update(snapshot), (1,1))
+        self.assertEqual(self.rows(), ((1,'a'), (2,'new')))
+        snapshot = preview_update(self.config, self.operation, {'new':'new','start':'2'})
+        self.assertEqual(apply_update(snapshot), (1,0))
+
+    def test_second_write_error_rolls_back_first(self):
+        import pymysql
+        from updates import preview_update, apply_update
+        snapshot = preview_update(self.config, self.operation, {'new':'same','start':'1'})
+        with self.assertRaises(pymysql.IntegrityError):
+            apply_update(snapshot)
+        self.assertEqual(self.rows(), ((1,'a'), (2,'b')))
+
+    def test_concurrent_change_prevents_commit(self):
+        from updates import preview_update, apply_update, UpdateError
+        snapshot = preview_update(self.config, self.operation, {'new':'new','start':'2'})
+        with self.conn.cursor() as cur:
+            cur.execute("UPDATE updates_fixture SET name='changed' WHERE id=2")
+        with self.assertRaises(UpdateError):
+            apply_update(snapshot)
+        self.assertEqual(self.rows(), ((1,'a'), (2,'changed')))
+
+    def test_max_rows_and_primary_key_protection(self):
+        from updates import preview_update, UpdateError, parse_update
+        self.operation['max_rows'] = 1
+        with self.assertRaises(UpdateError):
+            preview_update(self.config, self.operation, {'new':'new','start':'1'})
+        self.operation['sql'] = 'UPDATE updates_fixture SET id=%(new)s WHERE id >= %(start)s'
+        self.operation['compiled'] = parse_update(self.operation['sql'])
+        with self.assertRaises(UpdateError):
+            preview_update(self.config, self.operation, {'new':'3','start':'2'})
+        self.assertEqual(self.rows(), ((1,'a'), (2,'b')))

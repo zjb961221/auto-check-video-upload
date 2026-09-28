@@ -33,6 +33,7 @@ class App(tk.Tk):
         self.parameter_inputs = []
         self.result_context = None
         self.active_task = None
+        self.update_window = None
         self.jobs = queue.Queue()
         self.busy = False
         self.columns, self.rows = [], []
@@ -94,6 +95,9 @@ class App(tk.Tk):
         self.execute.pack(side='left')
         self.export = ttk.Button(toolbar, text='导出 CSV', command=self.export_result, state='disabled')
         self.export.pack(side='left', padx=10)
+        update_button = ttk.Button(toolbar, text='数据库更新…', command=self.open_updates)
+        update_button.pack(side='left', padx=(0, 10))
+        self.inputs.append(update_button)
         self.status = ttk.Label(toolbar, text='请配置连接；当前查询为示例')
         self.status.pack(side='left')
         self.progress = ttk.Progressbar(outer, mode='indeterminate')
@@ -276,7 +280,24 @@ class App(tk.Tk):
             except OSError:
                 messagebox.showerror('导出失败', '无法写入文件，请关闭 Excel 中的同名文件，或选择可写目录重试。')
 
+    def open_updates(self):
+        if self.busy:
+            return
+        if self.update_window is not None and self.update_window.winfo_exists():
+            self.update_window.lift()
+            return
+        try:
+            config = self.config()
+        except ValueError as exc:
+            messagebox.showerror('请检查连接信息', str(exc))
+            return
+        from updates_ui import UpdateWindow
+        self.update_window = UpdateWindow(self, config, ROOT / 'updates.json', self.logger)
+
     def close_app(self):
+        if self.update_window is not None and self.update_window.winfo_exists():
+            self.update_window.lift()
+            return
         if self.busy:
             messagebox.showinfo('操作进行中', '请等待本次操作完成后关闭；读取超时后会自动返回。')
             return

@@ -1,0 +1,12 @@
+[
+  {
+    "name": "修改 .9 录像机的视频编码（示例）",
+    "description": "按 id 定位一条记录，把 name 改为新的编码；请先核对表结构和主键。",
+    "sql": "UPDATE `9video` SET `name` = %(new_name)s WHERE `id` = %(channel_id)s",
+    "max_rows": 1,
+    "params": [
+      {"name": "channel_id", "label": "通道编号（例如 D1）", "type": "text"},
+      {"name": "new_name", "label": "新的视频编码", "type": "text"}
+    ]
+  }
+]

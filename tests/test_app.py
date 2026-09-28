@@ -67,5 +67,18 @@ class WindowTests(unittest.TestCase):
                 self.assertEqual(str(window.inputs[0]['state']), 'disabled')
                 window.set_busy(False)
                 self.assertEqual(str(window.inputs[0]['state']), 'normal')
+                from updates_ui import UpdateWindow
+                update = UpdateWindow(window, dict(host='localhost', port='3306', database='fixture', user='fixture', password=''),
+                                      Path(__file__).parents[1] / 'updates.example.json', MagicMock())
+                try:
+                    update.update_idletasks()
+                    self.assertEqual(len(update.operations), 1)
+                    self.assertIn('channel_id', update.parameters)
+                    update.preview = MagicMock()
+                    update.parameters['channel_id'].set('D2')
+                    self.assertIsNone(update.preview)
+                    self.assertEqual(str(update.submit_button['state']), 'disabled')
+                finally:
+                    update.close()
             finally:
                 window.destroy()
