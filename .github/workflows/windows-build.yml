@@ -1,0 +1,27 @@
+name: Build Windows desktop app
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test and build
+        shell: pwsh
+        run: ./build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VideoUploadCheck-Windows-x64
+          path: |
+            dist/VideoUploadCheck.exe
+            dist/queries.json
+            dist/README.md
+          if-no-files-found: error

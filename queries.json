@@ -1,0 +1,14 @@
+[
+  {
+    "name": "连接信息（示例）",
+    "description": "验证当前数据库、账号及服务器时间；不是视频上传检查。",
+    "sql": "SELECT DATABASE() AS 数据库, CURRENT_USER() AS 当前账号, VERSION() AS 数据库版本, NOW() AS 服务器时间",
+    "params": []
+  },
+  {
+    "name": "参数查询（示例）",
+    "description": "演示参数化查询。请由实施人员替换为已经验证的业务 SQL。",
+    "sql": "SELECT %(start_time)s AS 开始时间, %(end_time)s AS 结束时间",
+    "params": ["start_time", "end_time"]
+  }
+]
