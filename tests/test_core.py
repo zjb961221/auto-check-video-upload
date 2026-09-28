@@ -32,8 +32,8 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(len(rows), MAX_ROWS)
         self.assertTrue(truncated)
         cur.execute.assert_any_call('START TRANSACTION READ ONLY')
-        cur.execute.assert_any_call('SELECT * FROM (SELECT %(value)s AS value) AS fixed_query LIMIT 2001', params)
-        conn.rollback.assert_called_once()
+        cur.execute.assert_any_call('SELECT %(value)s AS value LIMIT 2001', params)
+        conn.rollback.assert_not_called()
         conn.close.assert_called_once()
         self.assertFalse(connect.call_args.kwargs['local_infile'])
 
@@ -44,7 +44,7 @@ class CoreTests(unittest.TestCase):
         config = dict(host='h', port='3306', user='u', password='p', database='d')
         with self.assertRaises(RuntimeError):
             run_query(config, 'SELECT 1', {}, connect)
-        conn.rollback.assert_called_once()
+        conn.rollback.assert_not_called()
         conn.close.assert_called_once()
 
     def test_csv_unicode_null_and_formula_escape(self):

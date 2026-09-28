@@ -9,6 +9,23 @@
     "name": "参数查询（示例）",
     "description": "演示参数化查询。请由实施人员替换为已经验证的业务 SQL。",
     "sql": "SELECT %(start_time)s AS 开始时间, %(end_time)s AS 结束时间",
-    "params": ["start_time", "end_time"]
+    "params": [
+      {
+        "name": "start_time",
+        "label": "开始时间",
+        "type": "datetime"
+      },
+      {
+        "name": "end_time",
+        "label": "结束时间",
+        "type": "datetime"
+      }
+    ],
+    "date_ranges": [
+      [
+        "start_time",
+        "end_time"
+      ]
+    ]
   }
 ]
