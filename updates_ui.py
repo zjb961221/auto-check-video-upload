@@ -5,7 +5,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 from diagnostics import error_message
-from updates import load_updates, preview_update, apply_update, UpdateError, CommitUncertain
+from updates import load_updates, preview_update, apply_update, UpdateError, CommitUncertain, bind_update_parameters, display_update_value
 
 
 class UpdateWindow(tk.Toplevel):
@@ -22,6 +22,7 @@ class UpdateWindow(tk.Toplevel):
         self.operations = []
         self.parameters = {}
         self.inputs = []
+        self.modes, self.entries, self.mode_widgets = {}, {}, []
         self.jobs = queue.Queue()
         self.transient(parent)
         self.protocol('WM_DELETE_WINDOW', self.close)
@@ -97,6 +98,7 @@ class UpdateWindow(tk.Toplevel):
             for widget in self.form.winfo_children():
                 widget.destroy()
             self.parameters, self.inputs = {}, []
+            self.modes, self.entries, self.mode_widgets = {}, {}, []
             self.sql_text.configure(state='normal')
             self.sql_text.delete('1.0', 'end')
             self.sql_text.configure(state='disabled')
@@ -108,27 +110,52 @@ class UpdateWindow(tk.Toplevel):
         for widget in self.form.winfo_children():
             widget.destroy()
         self.parameters, self.inputs = {}, []
+        self.modes, self.entries, self.mode_widgets = {}, {}, []
         operation = self.operations[self.choice.current()]
         self.description.configure(text=f"{operation.get('description', '')}（最多 {operation['max_rows']} 行）")
         self.sql_text.configure(state='normal')
         self.sql_text.delete('1.0', 'end')
         self.sql_text.insert('1.0', operation['sql'])
         self.sql_text.configure(state='disabled')
+        condition_params = {p for _, _, p in operation['compiled']['conditions']}
         for index, spec in enumerate(operation['params']):
             row, col = divmod(index, 2)
             ttk.Label(self.form, text=spec['label']).grid(row=row*2, column=col, sticky='w')
             var = tk.StringVar(value=str(spec['default']))
             var.trace_add('write', self.invalidate)
             self.parameters[spec['name']] = var
-            entry = ttk.Entry(self.form, textvariable=var)
-            entry.grid(row=row*2+1, column=col, sticky='ew', padx=(0, 12), pady=(3, 6))
+            cell = ttk.Frame(self.form)
+            cell.grid(row=row*2+1, column=col, sticky='ew', padx=(0, 12), pady=(3, 6))
+            entry = ttk.Entry(cell, textvariable=var)
+            entry.pack(side='left', fill='x', expand=True)
+            self.entries[spec['name']] = entry
+            if spec['name'] not in condition_params:
+                choices = ['输入值', '空字符串', '数据库 NULL'] if spec['type'] == 'text' else ['输入值', '数据库 NULL']
+                mode = tk.StringVar(value='输入值')
+                self.modes[spec['name']] = mode
+                selector = ttk.Combobox(cell, textvariable=mode, values=choices, state='readonly', width=12)
+                selector.pack(side='left', padx=(6, 0))
+                self.mode_widgets.append(selector)
+                mode.trace_add('write', self.mode_changed)
             self.form.columnconfigure(col, weight=1)
             self.inputs.append(entry)
+
+    def mode_changed(self, *args):
+        self.invalidate()
+        self.refresh_inputs()
+
+    def refresh_inputs(self):
+        for name, entry in self.entries.items():
+            special = name in self.modes and self.modes[name].get() != '输入值'
+            entry.configure(state='disabled' if self.busy or special else 'normal')
+        for widget in self.mode_widgets:
+            widget.configure(state='disabled' if self.busy else 'readonly')
 
     def set_busy(self, busy):
         self.busy = busy
         for widget in self.inputs + [self.reload_button]:
             widget.configure(state='disabled' if busy else 'normal')
+        self.refresh_inputs()
         self.choice.configure(state='disabled' if busy else 'readonly')
         self.preview_button.configure(state='disabled' if busy or not self.operations else 'normal')
         self.submit_button.configure(state='disabled' if busy or self.preview is None or not self.preview.rows else 'normal')
@@ -160,13 +187,14 @@ class UpdateWindow(tk.Toplevel):
         operation = deepcopy(self.operations[self.choice.current()])
         values = {k: v.get() for k, v in self.parameters.items()}
         # User input validation errors should stay actionable instead of generic.
-        from queries import bind_parameters
+        mapping = {'输入值': 'value', '空字符串': 'empty', '数据库 NULL': 'null'}
+        modes = {k: mapping[v.get()] for k, v in self.modes.items()}
         try:
-            bind_parameters(operation, values)
+            bind_update_parameters(operation, values, modes)
         except ValueError as exc:
             messagebox.showerror('请检查参数', str(exc), parent=self)
             return
-        self.launch('preview', lambda: preview_update(self.config_snapshot, operation, values))
+        self.launch('preview', lambda: preview_update(self.config_snapshot, operation, values, modes=modes))
 
     def submit(self):
         if self.busy or self.preview is None or not self.preview.rows:
@@ -192,7 +220,7 @@ class UpdateWindow(tk.Toplevel):
                 key = ', '.join(f'{k}={row[data.columns.index(k)]}' for k in data.metadata[2])
                 for column, param in compiled['changes']:
                     before = row[data.columns.index(column)]
-                    self.table.insert('', 'end', values=(key, column, 'NULL' if before is None else str(before), str(data.params[param])))
+                    self.table.insert('', 'end', values=(key, column, display_update_value(before), display_update_value(data.params[param])))
             self.status.configure(text=f'已预览 {len(data.rows)} 条记录，尚未修改数据库。' if data.rows else '没有匹配记录，不可提交。')
         elif state == 'ok':
             matched, changed = data

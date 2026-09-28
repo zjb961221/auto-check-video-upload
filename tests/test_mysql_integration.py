@@ -104,3 +104,18 @@ class MySQLUpdateIntegrationTests(unittest.TestCase):
         with self.assertRaises(UpdateError):
             preview_update(self.config, self.operation, {'new':'3','start':'2'})
         self.assertEqual(self.rows(), ((1,'a'), (2,'b')))
+
+    def test_empty_string_null_and_literal_null_storage(self):
+        from updates import preview_update, apply_update
+        for mode, value, expected in [('empty','ignored',''), ('null','ignored',None), ('value','NULL','NULL')]:
+            snapshot = preview_update(self.config, self.operation, {'new':value,'start':'2'}, modes={'new':mode})
+            apply_update(snapshot)
+            self.assertEqual(self.rows()[1][1], expected)
+
+    def test_null_on_not_null_column_is_rejected_before_write(self):
+        from updates import preview_update, UpdateError
+        with self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE updates_fixture MODIFY name VARCHAR(30) NOT NULL')
+        with self.assertRaises(UpdateError):
+            preview_update(self.config, self.operation, {'new':'','start':'2'}, modes={'new':'null'})
+        self.assertEqual(self.rows(), ((1,'a'), (2,'b')))

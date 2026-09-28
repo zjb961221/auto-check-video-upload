@@ -106,6 +106,45 @@ def validate_parameter_spec(item):
     item['date_ranges'] = []
 
 
+def bind_update_parameters(operation, raw, modes=None):
+    modes = modes or {}
+    condition_params = {p for _, _, p in operation['compiled']['conditions']}
+    values, regular = {}, []
+    for spec in operation['params']:
+        name = spec['name']
+        mode = modes.get(name, 'value')
+        if mode not in ('value', 'empty', 'null'):
+            raise UpdateError('未知的参数输入方式')
+        if mode != 'value' and name in condition_params:
+            raise UpdateError(f"定位条件“{spec['label']}”不能使用空字符串或 NULL")
+        if mode == 'null':
+            values[name] = None
+        elif mode == 'empty':
+            if spec['type'] != 'text':
+                raise UpdateError('空字符串仅适用于 text 参数')
+            values[name] = ''
+        else:
+            regular.append(spec)
+    values.update(bind_parameters(dict(params=regular, date_ranges=[]), raw))
+    return values
+
+
+def validate_null_targets(operation, params, metadata):
+    nullable = {row[0]: row[2] == 'YES' for row in metadata[1]}
+    for column, parameter in operation['compiled']['changes']:
+        if params[parameter] is None and not nullable[column]:
+            raise UpdateError(f'字段“{column}”不允许 NULL，请改用普通值或空字符串')
+
+
+def display_update_value(value):
+    if value is None:
+        return '数据库 NULL'
+    if isinstance(value, str):
+        # Quoted strings distinguish literal NULL, empty text and whitespace.
+        return json.dumps(value, ensure_ascii=False) + ('（空字符串）' if value == '' else '')
+    return str(value)
+
+
 @dataclass(frozen=True)
 class Preview:
     operation: dict = field(repr=False)
@@ -156,16 +195,17 @@ def select_rows(cursor, operation, params, metadata, lock=False):
     return columns, rows
 
 
-def preview_update(config, operation, raw_params, connect=None):
+def preview_update(config, operation, raw_params, connect=None, modes=None):
     operation = deepcopy(operation)
     operation['compiled'] = parse_update(operation['sql'])
-    params = bind_parameters(operation, raw_params)
+    params = bind_update_parameters(operation, raw_params, modes)
     conn = connect_database(config, connect)
     try:
         with conn.cursor() as cur:
             cur.execute('SET SESSION MAX_EXECUTION_TIME=30000')
             cur.execute('START TRANSACTION READ ONLY')
             metadata = inspect_table(cur, operation)
+            validate_null_targets(operation, params, metadata)
             columns, rows = select_rows(cur, operation, params, metadata)
             return Preview(operation, deepcopy(params), deepcopy(config), metadata, columns, rows, time.monotonic())
     finally:

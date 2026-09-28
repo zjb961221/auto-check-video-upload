@@ -101,3 +101,35 @@ class UpdateTests(unittest.TestCase):
         with self.assertRaises(UpdateError):
             apply_update(expired, factory)
         factory.assert_not_called()
+
+
+class EmptyValueTests(unittest.TestCase):
+    def test_empty_null_and_literal_null_are_distinct(self):
+        from updates import bind_update_parameters, display_update_value
+        op = operation()
+        raw = dict(new_name='NULL', id='1')
+        self.assertEqual(bind_update_parameters(op, raw)['new_name'], 'NULL')
+        self.assertEqual(bind_update_parameters(op, raw, {'new_name':'empty'})['new_name'], '')
+        self.assertIsNone(bind_update_parameters(op, raw, {'new_name':'null'})['new_name'])
+        self.assertEqual(len({display_update_value(v) for v in (None, '', 'NULL')}), 3)
+        with self.assertRaises(ValueError):
+            bind_update_parameters(op, dict(new_name='', id='1'))
+
+    def test_conditions_cannot_be_empty_or_null(self):
+        from updates import bind_update_parameters
+        for mode in ('empty','null'):
+            with self.assertRaises(UpdateError):
+                bind_update_parameters(operation(), dict(new_name='a', id='1'), {'id':mode})
+
+    def test_nonnullable_target_rejected(self):
+        from updates import validate_null_targets
+        meta = (METADATA[0], (METADATA[1][0], ('name','varchar(100)','NO','',None)), METADATA[2])
+        with self.assertRaises(UpdateError):
+            validate_null_targets(operation(), dict(new_name=None, id=1), meta)
+
+    def test_null_is_bound_as_none_on_write(self):
+        factory, _, _ = connection()
+        snapshot = preview_update(CONFIG, operation(), dict(new_name='', id='1'), factory, modes={'new_name':'null'})
+        factory, conn, cursor = connection()
+        apply_update(snapshot, factory)
+        cursor.execute.assert_any_call('UPDATE `samples` SET `name`=%s WHERE `id`=%s', (None, 1))
