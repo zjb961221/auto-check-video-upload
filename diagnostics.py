@@ -3,7 +3,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from uuid import uuid4
 
-VERSION = '0.3.1'
+VERSION = '0.4.0'
 MESSAGES = {
     1062: '更新值违反唯一约束，事务未提交，请核对数据。',
     1205: '等待记录锁超时，请稍后重新预览。',

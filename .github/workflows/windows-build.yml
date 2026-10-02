@@ -23,6 +23,7 @@ jobs:
           path: |
             dist/VideoUploadCheck.exe
             dist/queries.json
+            dist/api_requests.json
             dist/updates.json
             dist/updates.example.json
             dist/README.md

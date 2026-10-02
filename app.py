@@ -34,6 +34,7 @@ class App(tk.Tk):
         self.result_context = None
         self.active_task = None
         self.update_window = None
+        self.api_window = None
         self.jobs = queue.Queue()
         self.busy = False
         self.columns, self.rows = [], []
@@ -98,6 +99,9 @@ class App(tk.Tk):
         update_button = ttk.Button(toolbar, text='数据库更新…', command=self.open_updates)
         update_button.pack(side='left', padx=(0, 10))
         self.inputs.append(update_button)
+        api_button = ttk.Button(toolbar, text='API 调用…', command=self.open_api)
+        api_button.pack(side='left', padx=(0, 10))
+        self.inputs.append(api_button)
         self.status = ttk.Label(toolbar, text='请配置连接；当前查询为示例')
         self.status.pack(side='left')
         self.progress = ttk.Progressbar(outer, mode='indeterminate')
@@ -294,7 +298,19 @@ class App(tk.Tk):
         from updates_ui import UpdateWindow
         self.update_window = UpdateWindow(self, config, ROOT / 'updates.json', self.logger)
 
+    def open_api(self):
+        if self.busy:
+            return
+        if self.api_window is not None and self.api_window.winfo_exists():
+            self.api_window.lift()
+            return
+        from api_ui import ApiWindow
+        self.api_window = ApiWindow(self, ROOT / 'api_requests.json', SETTINGS.parent / 'api_profiles.json', self.logger)
+
     def close_app(self):
+        if self.api_window is not None and self.api_window.winfo_exists():
+            self.api_window.lift()
+            return
         if self.update_window is not None and self.update_window.winfo_exists():
             self.update_window.lift()
             return

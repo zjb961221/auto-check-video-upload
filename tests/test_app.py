@@ -89,5 +89,24 @@ class WindowTests(unittest.TestCase):
                     self.assertEqual(str(update.submit_button['state']), 'disabled')
                 finally:
                     update.close()
+                from api_ui import ApiWindow
+                api = ApiWindow(window, Path(__file__).parents[1] / 'api_requests.json', Path(folder) / 'api_profiles.json', MagicMock())
+                try:
+                    api.update_idletasks()
+                    api.vars['base_url'].set('http://127.0.0.1:12345')
+                    profile = api.profile()
+                    self.assertEqual(profile['auth_type'], 'none')
+                    api.preview()
+                    self.assertIn('GET http://127.0.0.1:12345/', api.output.get('1.0', 'end'))
+                    api.set_busy(True)
+                    self.assertEqual(str(api.auth['state']), 'disabled')
+                    api.set_busy(False)
+                    self.assertEqual(str(api.auth['state']), 'readonly')
+                    api.choice.current(1)
+                    api.change_preset()
+                    self.assertEqual(api.auth.get(), '登录后 Token')
+                    self.assertIn('page', api.parameters)
+                finally:
+                    api.close()
             finally:
                 window.destroy()

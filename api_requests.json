@@ -1,0 +1,33 @@
+[
+  {
+    "name": "自定义接口（可直接编辑请求 JSON）",
+    "profile_name": "默认服务",
+    "description": "填写服务地址，编辑下方请求 JSON 后发送。HTTP 成功不等于业务成功，请检查返回字段。",
+    "profile": {"auth_type": "none"},
+    "request": {"method": "GET", "path": "/", "query": {}, "headers": {}, "body_type": "none"},
+    "params": []
+  },
+  {
+    "name": "WVP 登录与设备查询（版本示例）",
+    "profile_name": "WVP",
+    "description": "填写 WVP 地址、用户名和原始密码，先登录再查询；路径及返回格式需按现场版本确认。",
+    "profile": {
+      "auth_type": "login_token",
+      "key_name": "access-token",
+      "login": {"method": "POST", "path": "/api/user/login", "body_type": "form", "body": {"username": "{{username}}", "password": "{{password_md5}}"}, "token_header": "access-token", "token_path": "accessToken"}
+    },
+    "request": {"method": "GET", "path": "/api/device/query/devices", "query": {"page": "{{page}}", "count": "{{count}}"}, "body_type": "none"},
+    "params": [{"name": "page", "label": "页码", "type": "integer", "default": "1"}, {"name": "count", "label": "每页数量", "type": "integer", "default": "20"}]
+  },
+  {
+    "name": "Cookie 登录会话（任务调度平台示例）",
+    "profile_name": "任务调度平台",
+    "description": "服务地址含应用路径，例如 http://服务器:8080/xxl-job-admin。示例登录路径和返回码必须按现场版本核对；请求默认访问首页。",
+    "profile": {
+      "auth_type": "login_cookie",
+      "login": {"method": "POST", "path": "/login", "body_type": "form", "body": {"userName": "{{username}}", "password": "{{password}}", "ifRemember": "on"}, "success_path": "code", "success_value": 200}
+    },
+    "request": {"method": "GET", "path": "/", "body_type": "none"},
+    "params": []
+  }
+]

@@ -2,7 +2,7 @@
 
 中文 Windows 桌面应用，使用 Python 3.12、Tkinter 和 PyMySQL。客户无需填写 SQL，可选择预配置查询并导出结果。
 
-**当前是 v0.3.1 可配置查询与更新工具，不包含真实的视频上传判断逻辑。仓库中的两条查询是明确标注的示例。上线前需要提供实际 SQL、字段含义与成功/失败判定规则。**
+**当前是 v0.4.0 数据库与 API 工具，不包含真实的视频上传判断逻辑。仓库中的两条查询是明确标注的示例。上线前需要提供实际 SQL、字段含义与成功/失败判定规则。**
 
 ## 客户使用
 
@@ -75,6 +75,9 @@
 | `core.py` | CSV 导出及旧模块入口兼容 |
 | `updates.py` | 受限 UPDATE 校验、预览快照、并发检查和事务提交 |
 | `updates_ui.py` | 独立更新窗口与确认流程 |
+| `api_client.py` | HTTP 请求、鉴权、Cookie 会话与响应脱敏 |
+| `api_config.py` | 接口模板与加密连接配置 |
+| `api_ui.py` | 通用 API 工作窗口 |
 
 保持单进程桌面应用，后台线程只负责数据库请求，所有 Tk 更新在主线程执行。不为小型工具引入 Web 服务或额外部署组件。
 
@@ -127,6 +130,83 @@
 
 升级时替换 EXE，并放入 `updates.example.json` 供参考；若已有自己的 `updates.json`，**不要被安装包中的空配置覆盖**。原有 `queries.json` 同样保留。重新打开更新窗口或点击“重新加载更新配置”可加载修改。
 
+## 通用 HTTP API 调用（v0.4.0）
+
+点击主窗口“API 调用…”，无需连接数据库。可以调用 WVP、任务调度平台或其他 HTTP API。平台路径和鉴权字段通过配置定义，而非固定在代码里。
+
+### 操作流程
+
+1. 选择接口示例，或选择“自定义接口”。
+2. 在“服务与鉴权”填服务地址、鉴权方式和相关凭据。配置名称用于区分不同服务的已保存连接。
+3. 如果使用“登录后 Token / Cookie”，先检查“登录请求配置”，点击“登录 / 获取会话”。Bearer、API Key、Basic 不需要额外登录。
+4. 在“请求与参数”填写参数，检查或直接编辑请求 JSON。点击“预览请求”核对实际 URL、方法、Header 和请求体。
+5. 点击“发送接口”，在“响应结果”查看 HTTP 状态、耗时和业务响应。非 GET/HEAD/OPTIONS 请求会要求确认；配置 `confirm: true` 可让 GET 操作也要求确认。
+
+支持 GET、POST、PUT、PATCH、DELETE、HEAD、OPTIONS。请求体支持 JSON、URL 编码表单、raw 文本及无请求体；可自定义 Header 和查询参数。当前不提供 multipart 文件上传、流式订阅、OAuth 浏览器授权或自动生成 HMAC 签名。特殊鉴权可按接口文档补充签名 Header，但不能声称无需适配所有平台。
+
+### 接口配置格式
+
+EXE 同目录的 `api_requests.json` 为接口数组。编辑后点击“重新加载接口配置”。界面中的请求 JSON 编辑用于本次调用，不会自动写回接口配置文件。
+
+```json
+[
+  {
+    "name": "按设备编号调用接口",
+    "description": "示例路径，必须替换成现场实际接口",
+    "profile_name": "我的服务",
+    "profile": {"auth_type": "bearer"},
+    "request": {
+      "method": "POST",
+      "path": "/api/devices/{{device_id}}/check",
+      "query": {},
+      "headers": {},
+      "body_type": "json",
+      "body": {"enabled": "{{enabled}}"}
+    },
+    "params": [
+      {"name": "device_id", "label": "设备编号", "type": "text"},
+      {"name": "enabled", "label": "是否启用（true/false）", "type": "boolean", "default": "true"}
+    ]
+  }
+]
+```
+
+`{{参数名}}` 为模板变量。JSON 中完整占位符会保留整数/布尔类型，字符串中的嵌入变量按文本替换，路径变量自动 URL 编码。参数支持 text、integer、boolean；最多 8 个。`required` 默认 true；敏感参数设置 `secret: true`，界面遮盖输入并在预览/响应中遮盖对应值。username、password、password_md5、token 是保留变量。
+
+服务地址可以包含应用路径：例如 `http://主机:8080/xxl-job-admin`；接口 `path: "/login"` 会接在应用路径后，成为 `/xxl-job-admin/login`。path 不允许指向其他主机。服务地址不能嵌入用户名、密码、查询串或片段。
+
+### 鉴权与会话
+
+| 界面选项 | profile.auth_type | 填写方式 |
+|---|---|---|
+| 无鉴权 | none | 直接发送 |
+| Bearer Token | bearer | token 填原值，自动加 Authorization: Bearer |
+| API Key / 自定义 Header | api_header | 填 key_name、token；prefix 可选 |
+| API Key / 查询参数 | api_query | 填 key_name、token；prefix 可选 |
+| Basic 用户名密码 | basic | 填 username、password |
+| 登录后 Token | login_token | 配置 login，提取 token_header 或 token_path，后续通过 key_name Header 发送 |
+| 登录后 Cookie | login_cookie | 配置 login，Cookie 自动存于当前会话 |
+
+登录请求支持 method、path、query、headers、body_type、body。变量 `{{password}}` 是原始密码，`{{password_md5}}` 是 UTF-8 密码的 32 位 MD5（只用于协议兼容，不代表安全加密）。
+
+Token 可从 `token_header` 指定的响应头提取，或从 `token_path` 指定的 JSON 字段提取。支持 `data.accessToken`、`data.0.token` 这样的点路径。可用 `success_path` 和 `success_value` 检查登录业务状态，避免 HTTP 200 的登录失败被误判成功。
+
+WVP 示例采用 `/api/user/login`、MD5 密码和 `access-token` 响应头。依据 [WVP 用户接口源码](https://github.com/648540858/wvp-GB28181-pro/blob/master/src/main/java/com/genersoft/iot/vmp/vmanager/user/UserController.java)。不同版本可能返回 `accessToken` 或 `data.accessToken`，请按现场文档调整。设备列表路径也是版本示例，需在现场确认。
+
+Cookie 示例演示任务调度平台的登录会话；XXL-JOB 不同版本、调度中心与执行器的鉴权方式可能不同。调度中心通常用登录 Cookie，执行器可能需要自定义 accessToken Header；应按现场接口文档选择对应模式，不把两者混用。
+
+### 凭据、网络和响应处理
+
+- 当前服务连接保存至 `%LOCALAPPDATA%\VideoUploadCheck\api_profiles.json`。勾选“记住密钥”时，整个连接配置（包括登录模板）使用 Windows DPAPI 加密；不同配置名称分开保存。取消勾选后只保存非敏感连接字段，移除该配置之前保存的密钥及自定义登录模板。
+- 登录得到的 Token/Cookie 只在当前窗口会话内保存，关闭、清除会话或改变连接配置后需要重新登录。手动填写的 Token/API Key 可以选择加密记住。
+- 切换接口示例会根据 profile_name 恢复该服务已保存的连接；修改配置名称后可点击“恢复已保存连接”。成功调用后自动保存连接，保存失败不影响已返回的响应。
+- 不把真实密码或密钥写进 api_requests.json；使用鉴权输入框或模板变量。请求和响应显示会遮盖常见凭据字段、已知凭据值及 secret 参数；原始响应仅在内存中处理。对未知字段的业务敏感信息不能保证自动识别。
+- HTTPS 默认校验证书和主机名，可选择自有 CA 文件；不提供关闭证书验证选项。HTTP 请求不加密。默认不用系统代理，内网接口可直连；确实需要代理时勾选“使用系统代理”。
+- 超时可设 1–120 秒；网络连接与读取可能分别等待，DNS 时间也由操作系统控制。响应及请求体上限为 2 MB；不适用于视频流或大文件下载。非文本响应只显示类型和字节数。
+- 3xx 重定向只显示状态，不自动跟随，避免转发凭据或重放写请求。4xx/5xx 响应也可以查看。不自动重试、不自动重新登录后重发；401/403 时先核对凭据。
+- 接口写操作由远端系统处理，不具备数据库更新窗口的事务回滚能力。超时或连接断开不能证明服务端没有执行；先查询核实，避免任务被重复触发。
+- 日志只记录事件、HTTP 状态和异常类型，不记录 URL、Header、Cookie、请求体、响应体或凭据。
+
 ## 开发运行
 
 ```powershell
@@ -143,7 +223,7 @@ py -3.12 -m venv .venv
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-只对本次脚本执行设置策略，不修改系统策略。打包输出在 `dist`，需分发 EXE、queries.json、updates.json 和 updates.example.json。EXE 未做代码签名；如客户组织有签名要求，交付前按组织流程签名。
+只对本次脚本执行设置策略，不修改系统策略。打包输出在 `dist`，需分发 EXE、queries.json、updates.json、updates.example.json 和 api_requests.json。EXE 未做代码签名；如客户组织有签名要求，交付前按组织流程签名。
 
 GitHub Actions 会在 main 推送、PR 或手动触发时执行测试和 Windows 打包，构建成功后在 Actions 页面下载产物。本项目不自动发布 GitHub Release。
 
@@ -158,3 +238,5 @@ python -m unittest discover -s tests -v
 Windows 构建任务还会执行真实 Tk 窗口测试和 DPAPI 跨进程恢复测试。独立 MySQL 8.0 工作流使用临时数据库检查排序、截断、重复列名、参数绑定和错误后重连，并验证更新预览不写入、成功提交、同值更新、并发冲突及多行更新中途失败回滚。测试凭据仅用于 CI 临时容器，不连接任何客户数据库。
 
 本地无 Windows 桌面或 MySQL 时会明确跳过对应测试；提交后以 Actions 结果为准。真实业务 SQL 正确性、现场网络和 EXE 用户验收仍需在客户环境核对。
+
+API 测试使用本地临时 HTTP 服务验证 URL 编码、请求体类型、各类鉴权、登录 Token、Cookie、错误响应、响应大小限制、重定向不重放以及请求脱敏；不调用任何客户接口。Windows 任务还验证 API 窗口状态和预览。平台真实账号、现场接口版本及业务效果需在现场核对。

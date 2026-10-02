@@ -9,6 +9,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
 & .\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed --name VideoUploadCheck app.py
 if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
 Copy-Item queries.json dist\queries.json -Force
+Copy-Item api_requests.json dist\api_requests.json -Force
 Copy-Item updates.json dist\updates.json -Force
 Copy-Item updates.example.json dist\updates.example.json -Force
 Copy-Item README.md dist\README.md -Force
