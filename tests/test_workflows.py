@@ -184,5 +184,8 @@ class WorkflowWindowTests(unittest.TestCase):
                 self.assertEqual(str(panel.next_button['state']), 'disabled')
                 panel.move(1)
                 self.assertEqual(panel.run.index, 1)
+                pending = panel.poll_id
+                panel.destroy()
+                self.assertNotIn(pending, window.tk.call('after', 'info'))
             finally:
                 window.destroy()

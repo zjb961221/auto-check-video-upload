@@ -87,7 +87,7 @@ class WorkflowPanel(ttk.Frame):
         for var in app.vars.values():
             var.trace_add('write', self.connection_changed)
         self.reload(initial=True)
-        self.after(100, self.poll)
+        self.poll_id = self.after(100, self.poll)
 
     def warn(self, text):
         messagebox.showerror('流程操作', text, parent=self)
@@ -513,7 +513,7 @@ class WorkflowPanel(ttk.Frame):
         try:
             action, state, data = self.jobs.get_nowait()
         except queue.Empty:
-            self.after(100, self.poll)
+            self.poll_id = self.after(100, self.poll)
             return
         index = self.run.index
         stamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ' · ' + str(getattr(self, 'target_label', ''))
@@ -563,9 +563,9 @@ class WorkflowPanel(ttk.Frame):
                 self.run.states[index] = 'uncertain' if write else 'failed'
             self.status.configure(text=status)
         self.set_busy(False)
-        self.after_idle(lambda: self.canvas.yview_moveto(1))
+        self.scroll_id = self.after_idle(lambda: self.canvas.yview_moveto(1))
         self.app.logger.info('event=workflow_operation action=%s state=%s', action, self.run.states[index])
-        self.after(100, self.poll)
+        self.poll_id = self.after(100, self.poll)
 
     def export(self):
         result = self.results.get(self.run.index, {})
@@ -578,3 +578,16 @@ class WorkflowPanel(ttk.Frame):
                 self.status.configure(text='已导出本步骤当前查询结果。')
             except OSError:
                 self.warn('无法导出，请关闭占用文件的 Excel 或选择其他目录。')
+
+
+    def destroy(self):
+        # Cancel callbacks before Tk deletes their Tcl commands.
+        for name in ('poll_id', 'scroll_id'):
+            callback = getattr(self, name, None)
+            if callback is not None:
+                try:
+                    self.after_cancel(callback)
+                except tk.TclError:
+                    pass
+                setattr(self, name, None)
+        super().destroy()

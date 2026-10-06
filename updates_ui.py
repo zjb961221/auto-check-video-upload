@@ -70,7 +70,7 @@ class UpdateWindow(tk.Toplevel):
         self.table.configure(yscrollcommand=y.set, xscrollcommand=x.set)
         ttk.Label(body, text='预览不修改数据；计划值不是数据库转换后的值。预览有效期 5 分钟，修改参数后须重新预览。', wraplength=950).pack(anchor='w', pady=(8, 0))
         self.reload()
-        self.after(100, self.poll)
+        self.poll_id = self.after(100, self.poll)
         self.grab_set()
 
     def invalidate(self, *args):
@@ -210,7 +210,7 @@ class UpdateWindow(tk.Toplevel):
         try:
             action, state, data = self.jobs.get_nowait()
         except queue.Empty:
-            self.after(100, self.poll)
+            self.poll_id = self.after(100, self.poll)
             return
         if state == 'ok' and action == 'preview':
             self.preview = data
@@ -233,7 +233,7 @@ class UpdateWindow(tk.Toplevel):
             self.status.configure(text='提交结果无法确认，请查询核实，勿重复提交。' if state == 'uncertain' else '本次操作未完成；旧预览已失效，请处理错误后重新预览。')
             messagebox.showerror('提交结果待核实' if state == 'uncertain' else '更新操作失败', data, parent=self)
         self.set_busy(False)
-        self.after(100, self.poll)
+        self.poll_id = self.after(100, self.poll)
 
     def close(self):
         if self.busy:
@@ -241,3 +241,16 @@ class UpdateWindow(tk.Toplevel):
             return
         self.grab_release()
         self.destroy()
+
+
+    def destroy(self):
+        # Cancel callbacks before Tk deletes their Tcl commands.
+        for name in ('poll_id', 'scroll_id'):
+            callback = getattr(self, name, None)
+            if callback is not None:
+                try:
+                    self.after_cancel(callback)
+                except tk.TclError:
+                    pass
+                setattr(self, name, None)
+        super().destroy()

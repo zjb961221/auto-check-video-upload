@@ -118,7 +118,7 @@ class ApiWindow(tk.Toplevel):
         self.status.pack(anchor='w', pady=(6,0))
         self.refresh_profiles()
         self.reload()
-        self.after(100,self.poll)
+        self.poll_id = self.after(100,self.poll)
 
     def put_json(self, widget, value):
         widget.delete('1.0','end')
@@ -364,7 +364,7 @@ class ApiWindow(tk.Toplevel):
         try:
             state,action,text,response,name,remember,profile=self.jobs.get_nowait()
         except queue.Empty:
-            self.after(100,self.poll)
+            self.poll_id = self.after(100,self.poll)
             return
         self.set_busy(False)
         self.show(text)
@@ -379,7 +379,7 @@ class ApiWindow(tk.Toplevel):
                     self.refresh_profiles()
                 except (OSError,ValueError,TypeError):
                     self.status.configure(text=self.status.cget('text')+' · 连接信息未能保存')
-        self.after(100,self.poll)
+        self.poll_id = self.after(100,self.poll)
 
     def close(self):
         if self.busy:
@@ -391,3 +391,16 @@ class ApiWindow(tk.Toplevel):
         self.clear_session()
         self.grab_release()
         self.destroy()
+
+
+    def destroy(self):
+        # Cancel callbacks before Tk deletes their Tcl commands.
+        for name in ('poll_id', 'scroll_id'):
+            callback = getattr(self, name, None)
+            if callback is not None:
+                try:
+                    self.after_cancel(callback)
+                except tk.TclError:
+                    pass
+                setattr(self, name, None)
+        super().destroy()

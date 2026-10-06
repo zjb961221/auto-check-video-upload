@@ -135,7 +135,7 @@ class App(tk.Tk):
         self.workflow.pack(fill='both', expand=True)
         self.navigation.select(self.workflow_tab)
         self.protocol('WM_DELETE_WINDOW', self.close_app)
-        self.after(100, self.poll)
+        self.poll_id = self.after(100, self.poll)
 
     def choose_ca(self):
         path = filedialog.askopenfilename(title='选择 CA 证书', filetypes=[('证书文件', '*.pem *.crt *.cer'), ('所有文件', '*.*')])
@@ -243,7 +243,7 @@ class App(tk.Tk):
                 seconds = time.monotonic() - self.active_task['started']
                 operation = '测试连接' if self.active_task['test'] else '查询'
                 self.status.configure(text=f'正在{operation} · 已等待 {seconds:.0f} 秒')
-            self.after(100, self.poll)
+            self.poll_id = self.after(100, self.poll)
             return
         task = self.active_task
         self.active_task = None
@@ -280,7 +280,7 @@ class App(tk.Tk):
                 self.logger.warning('event=settings_save_failed')
                 messagebox.showwarning('本次操作成功，连接信息未保存', '无法保存连接信息；查询结果仍可查看和导出。请检查本机文件权限或稍后点击“保存连接信息”。')
             self.logger.info('event=operation_success test=%s elapsed=%.2f', task['test'], seconds)
-        self.after(100, self.poll)
+        self.poll_id = self.after(100, self.poll)
 
     def export_result(self):
         if self.result_context is None or self.busy:
@@ -334,6 +334,19 @@ class App(tk.Tk):
         if self.workflow.run and (self.workflow.drafts or self.workflow.results) and not messagebox.askyesno('关闭工具', '流程进度和本次输入不会保存，已执行的修改不会撤销。确认关闭？'):
             return
         self.destroy()
+
+
+    def destroy(self):
+        # Cancel callbacks before Tk deletes their Tcl commands.
+        for name in ('poll_id', 'scroll_id'):
+            callback = getattr(self, name, None)
+            if callback is not None:
+                try:
+                    self.after_cancel(callback)
+                except tk.TclError:
+                    pass
+                setattr(self, name, None)
+        super().destroy()
 
 
 if __name__ == '__main__':
