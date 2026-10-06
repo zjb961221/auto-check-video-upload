@@ -1,3 +1,4 @@
+from ui_theme import ScrollFrame, size_window
 """Universal API workbench, independent of database connectivity."""
 from copy import deepcopy
 import hashlib
@@ -21,8 +22,7 @@ class ApiWindow(tk.Toplevel):
     def __init__(self, parent, catalogue_path, profile_path, logger):
         super().__init__(parent)
         self.title('通用 API 调用 · HTTP 接口')
-        self.geometry('1100x820')
-        self.minsize(950, 730)
+        size_window(self, 1160, 850)
         self.transient(parent)
         self.grab_set()
         self.protocol('WM_DELETE_WINDOW', self.close)
@@ -40,8 +40,9 @@ class ApiWindow(tk.Toplevel):
         self.parameter_widgets = []
         self.controls = []
         self.vars = {}
-        body = ttk.Frame(self, padding=14)
-        body.pack(fill='both', expand=True)
+        viewport = ScrollFrame(self, padding=14)
+        viewport.pack(fill='both', expand=True)
+        body = viewport.content
         top = ttk.Frame(body)
         top.pack(fill='x', pady=(0, 10))
         self.choice = ttk.Combobox(top, state='readonly')
@@ -116,6 +117,8 @@ class ApiWindow(tk.Toplevel):
         self.progress.pack(fill='x')
         self.status = ttk.Label(body, text='请配置服务地址与接口', wraplength=1000)
         self.status.pack(anchor='w', pady=(6,0))
+        if hasattr(parent, "design"):
+            parent.design.paint_widgets(self)
         self.refresh_profiles()
         self.reload()
         self.poll_id = self.after(100,self.poll)

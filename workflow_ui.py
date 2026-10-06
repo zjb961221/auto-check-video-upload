@@ -38,27 +38,33 @@ class WorkflowPanel(ttk.Frame):
         self.parameters, self.modes = {}, {}
         title = ttk.Frame(self)
         title.pack(fill='x')
-        ttk.Label(title, text='客户操作向导', font=('Microsoft YaHei UI', 20, 'bold')).pack(side='left')
-        self.selector = ttk.Combobox(title, state='readonly', width=36)
+        self.flow_title = ttk.Label(title, text='客户操作向导', style='Heading.TLabel')
+        self.flow_title.pack(side='left')
+        self.selector = ttk.Combobox(title, state='readonly', width=24)
         self.selector.pack(side='left', padx=16, fill='x', expand=True)
         self.selector.bind('<<ComboboxSelected>>', self.select_flow)
         self.reload_button = ttk.Button(title, text='重新加载流程', command=self.reload)
         self.reload_button.pack(side='left')
-        self.description = ttk.Label(self, wraplength=1060)
+        self.description = ttk.Label(self, wraplength=1060, style='Muted.TLabel')
         self.description.pack(anchor='w', pady=(6, 10))
-        main = ttk.Frame(self)
+        self.step_picker = ttk.Combobox(self, state='readonly')
+        self.step_picker.bind('<<ComboboxSelected>>', lambda e: self.move(self.step_picker.current()) if not self.busy else None)
+        self.overall = ttk.Progressbar(self, mode='determinate', maximum=100)
+        self.overall.pack(fill='x', pady=(0, 10))
+        main = self.main = ttk.Frame(self)
         main.pack(fill='both', expand=True)
-        left = ttk.Frame(main, width=230)
+        left = self.sidebar = ttk.Frame(main, width=270)
+        left.pack_propagate(False)
         left.pack(side='left', fill='y', padx=(0, 12))
-        self.steps = tk.Listbox(left, width=28, exportselection=False, activestyle='none')
-        self.steps.pack(side='left', fill='both', expand=True)
+        self.steps = tk.Listbox(left, width=24, exportselection=False, activestyle='none')
+        self.steps.pack(side='left', fill='both', expand=True, pady=10)
         step_scroll = ttk.Scrollbar(left, command=self.steps.yview)
         step_scroll.pack(side='right', fill='y')
         self.steps.configure(yscrollcommand=step_scroll.set)
         self.steps.bind('<<ListboxSelect>>', self.select_step)
-        right = ttk.Frame(main)
+        right = self.right = ttk.Frame(main)
         right.pack(side='left', fill='both', expand=True)
-        self.heading = ttk.Label(right, font=('Microsoft YaHei UI', 15, 'bold'), wraplength=750)
+        self.heading = ttk.Label(right, style='Heading.TLabel', wraplength=750)
         self.heading.pack(anchor='w', pady=(0, 6))
         scroller = ttk.Frame(right)
         scroller.pack(fill='both', expand=True)
@@ -69,7 +75,7 @@ class WorkflowPanel(ttk.Frame):
         self.canvas.configure(yscrollcommand=scroll.set)
         self.body = ttk.Frame(self.canvas, padding=(0, 0, 8, 8))
         self.body_id = self.canvas.create_window((0, 0), window=self.body, anchor='nw')
-        self.body.bind('<Configure>', lambda e: self.canvas.configure(scrollregion=self.canvas.bbox('all')))
+        self.body.bind('<Configure>', self.body_layout)
         self.canvas.bind('<Configure>', lambda e: self.canvas.itemconfigure(self.body_id, width=e.width))
         self.status = ttk.Label(right, wraplength=780, text='请加载流程配置')
         self.status.pack(anchor='w', pady=8)
@@ -81,13 +87,61 @@ class WorkflowPanel(ttk.Frame):
         self.previous.pack(side='left')
         self.skip_button = ttk.Button(nav, text='跳过可选步骤', command=self.skip)
         self.skip_button.pack(side='left', padx=10)
-        self.next_button = ttk.Button(nav, text='确认完成，下一步', command=self.next)
+        self.next_button = ttk.Button(nav, style='Primary.TButton', text='确认完成，下一步', command=self.next)
         self.next_button.pack(side='right')
-        ttk.Label(self, text='按顺序办理；每步由客户确认后继续。流程进度仅在本次窗口内保留，重新开始不会撤销已执行的操作。', wraplength=1080).pack(anchor='w', pady=(10, 0))
+        self.footnote = ttk.Label(self, text='进度仅保留在本次运行中 · 已执行的修改不会因返回而撤销 · F11 全屏 / Esc 退出', style='Muted.TLabel', wraplength=1080)
+        self.footnote.pack(anchor='w', pady=(10, 0))
+        self.bind('<Configure>', self.responsive)
+        self.app.bind('<<DesignChanged>>', self.responsive, add='+')
+        self.app.design.decorate(self.previous, 'back')
+        self.app.design.decorate(self.next_button, 'next')
+        self.app.design.decorate(self.reload_button, 'flow')
         for var in app.vars.values():
             var.trace_add('write', self.connection_changed)
         self.reload(initial=True)
         self.poll_id = self.after(100, self.poll)
+
+    def responsive(self, event=None):
+        if event is not None and event.widget not in (self, self.app):
+            return
+        width = max(self.winfo_width(), 1)
+        compact = width < 1080 * self.app.design.zoom / 100
+        if compact:
+            self.sidebar.pack_forget()
+            self.flow_title.pack_forget()
+            if not self.step_picker.winfo_manager():
+                self.step_picker.pack(fill='x', before=self.overall, pady=(0,8))
+        else:
+            self.step_picker.pack_forget()
+            if not self.sidebar.winfo_manager():
+                self.sidebar.pack(side='left',fill='y',padx=(0,12),before=self.right)
+            if not self.flow_title.winfo_manager():
+                self.flow_title.pack(side='left',before=self.selector)
+        self.description.configure(wraplength=max(240,width-24))
+        self.footnote.configure(wraplength=max(240,width-24))
+        self.heading.configure(wraplength=max(240,self.right.winfo_width()-24))
+        self.status.configure(wraplength=max(240,self.right.winfo_width()-24))
+        if self.run:
+            self.refresh_nav()
+        self.body_layout()
+
+    def reflow_fields(self, parent):
+        columns = 1 if parent.winfo_width() < 650*self.app.design.zoom/100 else 2
+        for i, (caption, entry) in enumerate(parent._fields):
+            row, col = divmod(i, columns)
+            caption.grid_configure(row=row*2, column=col)
+            entry.grid_configure(row=row*2+1, column=col)
+        parent.columnconfigure(0,weight=1)
+        parent.columnconfigure(1,weight=1 if columns==2 else 0)
+
+    def body_layout(self, event=None):
+        self.canvas.configure(scrollregion=self.canvas.bbox('all'))
+        width = max(240,self.canvas.winfo_width()-40)
+        for widget in self.body.winfo_children():
+            if isinstance(widget, ttk.Label):
+                widget.configure(wraplength=width)
+            if hasattr(widget, '_fields'):
+                self.reflow_fields(widget)
 
     def warn(self, text):
         messagebox.showerror('流程操作', text, parent=self)
@@ -165,11 +219,16 @@ class WorkflowPanel(ttk.Frame):
 
     def field(self, parent, row, key, label, variable, secret=False):
         group, col = divmod(row, 2)
-        ttk.Label(parent, text=label).grid(row=group*2, column=col, sticky='w')
+        caption = ttk.Label(parent, text=label)
+        caption.grid(row=group*2, column=col, sticky='w')
         entry = ttk.Entry(parent, textvariable=variable, show='*' if secret else '')
         entry.grid(row=group*2+1, column=col, sticky='ew', padx=(0, 10), pady=(2, 6))
         parent.columnconfigure(col, weight=1)
         self.controls.append((entry, 'normal'))
+        if not hasattr(parent, '_fields'):
+            parent._fields = []
+            parent.bind('<Configure>', lambda e: self.reflow_fields(parent))
+        parent._fields.append((caption, entry))
         return entry
 
     def button(self, parent, label, command):
@@ -239,9 +298,14 @@ class WorkflowPanel(ttk.Frame):
             actions.pack(fill='x')
             label = {'query': '执行本步查询', 'update': '1. 预览本步修改', 'api': '发送本步接口'}[step['type']]
             self.action_button = self.button(actions, label, self.execute)
+            self.action_button.configure(style='Primary.TButton')
+            self.app.design.decorate(self.action_button, 'api' if step['type']=='api' else 'database')
             if step['type'] == 'update':
                 self.apply_button = self.button(actions, '2. 确认并提交', self.submit)
-            self.reconcile_button = self.button(actions, '已核实服务端，允许重新操作', self.reconcile)
+            reconcile_row = ttk.Frame(self.body)
+            reconcile_row.pack(fill='x')
+            self.reconcile_button = self.button(reconcile_row, '已核实服务端，允许重新操作', self.reconcile)
+            self.reconcile_button.configure(style='Danger.TButton')
             result_box = ttk.Frame(self.body)
             result_box.pack(fill='both', expand=True)
             result_box.columnconfigure(0, weight=1)
@@ -262,6 +326,8 @@ class WorkflowPanel(ttk.Frame):
         self.status.configure(text='当前状态：' + STATE_LABELS[self.run.states[i]] + '。操作完成后，核对结果再点击下一步。')
         self.canvas.yview_moveto(0)
         self.refresh_nav()
+        self.app.design.paint_widgets(self.body)
+        self.responsive()
 
     def db_form(self):
         box = ttk.LabelFrame(self.body, text='数据库连接（与高级工具共享，可保存）', padding=8)
@@ -333,6 +399,13 @@ class WorkflowPanel(ttk.Frame):
         self.steps.delete(0, 'end')
         for n, (step, state) in enumerate(zip(self.run.flow['steps'], self.run.states)):
             self.steps.insert('end', f'{n+1}. {step["title"]} [{STATE_LABELS[state]}]')
+        self.step_picker.configure(values=[f'{i+1}. {step["title"]} · {STATE_LABELS[state]}' for i, (step, state) in enumerate(zip(self.run.flow['steps'], self.run.states))])
+        self.step_picker.current(self.run.index)
+        self.step_picker.configure(state='disabled' if self.busy else 'readonly')
+        self.overall.configure(value=100*sum(s in ('done','skipped') for s in self.run.states)/len(self.run.states))
+        palette = self.app.design.colors
+        for i, state in enumerate(self.run.states):
+            self.steps.itemconfigure(i, foreground=palette['success'] if state=='done' else palette['danger'] if state in ('failed','uncertain') else palette['muted'] if state in ('pending','skipped') else palette['text'])
         self.steps.selection_set(self.run.index)
         self.steps.see(self.run.index)
         self.previous.configure(state='normal' if not self.busy and self.run.index else 'disabled')

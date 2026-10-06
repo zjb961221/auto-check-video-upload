@@ -12,6 +12,7 @@ from settings import load_settings, save_settings
 from queries import bind_parameters
 from database import validate_connection, test_connection
 from diagnostics import VERSION, configure_logging, error_message
+from ui_theme import DesignSystem, ScrollFrame, size_window, enable_dpi_awareness
 
 ROOT = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent
 SETTINGS = Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'VideoUploadCheck' / 'connection.json'
@@ -19,15 +20,12 @@ SETTINGS = Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'VideoUpload
 
 class App(tk.Tk):
     def __init__(self):
+        enable_dpi_awareness()
         super().__init__()
         self.title(f'视频上传检查 · v{VERSION}')
-        self.geometry('1150x820')
-        self.minsize(960, 760)
-        style = ttk.Style(self)
-        if 'clam' in style.theme_names():
-            style.theme_use('clam')
-        style.configure('.', font=('Microsoft YaHei UI', 10))
-        style.configure('Treeview', rowheight=28)
+        self.design = DesignSystem(self, SETTINGS.parent / 'appearance.json')
+        size_window(self, 1280, 900)
+        self.design.header(self)
         self.logger = configure_logging(SETTINGS.parent)
         self.inputs = []
         self.parameter_inputs = []
@@ -46,9 +44,10 @@ class App(tk.Tk):
         self.advanced_tab = ttk.Frame(self.navigation)
         self.navigation.add(self.workflow_tab, text='客户流程向导')
         self.navigation.add(self.advanced_tab, text='高级工具（实施人员）')
-        outer = ttk.Frame(self.advanced_tab, padding=20)
-        outer.pack(fill='both', expand=True)
-        ttk.Label(outer, text='数据库固定查询', font=('Microsoft YaHei UI', 20, 'bold')).pack(anchor='w')
+        advanced_scroll = ScrollFrame(self.advanced_tab, padding=20)
+        advanced_scroll.pack(fill='both', expand=True)
+        outer = advanced_scroll.content
+        ttk.Label(outer, text='数据库固定查询', style='Title.TLabel').pack(anchor='w')
         ttk.Label(outer, text='连接 MySQL → 选择检查项 → 执行查询 → 导出结果').pack(anchor='w', pady=(4, 14))
         conn = ttk.LabelFrame(outer, text='数据库连接', padding=12)
         conn.pack(fill='x')
@@ -98,7 +97,7 @@ class App(tk.Tk):
         self.choice.bind('<<ComboboxSelected>>', self.change_query)
         toolbar = ttk.Frame(outer)
         toolbar.pack(fill='x', pady=(0, 10))
-        self.execute = ttk.Button(toolbar, text='执行查询', command=self.start)
+        self.execute = ttk.Button(toolbar, style='Primary.TButton', text='执行查询', command=self.start)
         self.execute.pack(side='left')
         self.export = ttk.Button(toolbar, text='导出 CSV', command=self.export_result, state='disabled')
         self.export.pack(side='left', padx=10)
@@ -134,6 +133,9 @@ class App(tk.Tk):
         self.workflow = WorkflowPanel(self.workflow_tab, self, ROOT, SETTINGS)
         self.workflow.pack(fill='both', expand=True)
         self.navigation.select(self.workflow_tab)
+        self.design.paint_widgets(self)
+        self.design.decorate(self.execute, 'database')
+        self.design.decorate(api_button, 'api')
         self.protocol('WM_DELETE_WINDOW', self.close_app)
         self.poll_id = self.after(100, self.poll)
 

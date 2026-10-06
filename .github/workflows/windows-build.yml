@@ -17,10 +17,14 @@ jobs:
       - name: Test and build
         shell: pwsh
         run: ./build.ps1
+      - name: Capture desktop previews
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe tools/capture_ui.py
       - uses: actions/upload-artifact@v4
         with:
           name: VideoUploadCheck-Windows-x64
           path: |
+            ui-previews/*.bmp
             dist/VideoUploadCheck.exe
             dist/workflows.json
             dist/workflows.example.json

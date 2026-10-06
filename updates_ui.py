@@ -1,3 +1,4 @@
+from ui_theme import ScrollFrame, size_window
 """A modal update workflow isolated from the read-only query window."""
 from copy import deepcopy
 import queue
@@ -12,8 +13,7 @@ class UpdateWindow(tk.Toplevel):
     def __init__(self, parent, config, config_path, logger):
         super().__init__(parent)
         self.title('数据库更新 · 先预览，再确认提交')
-        self.geometry('1050x780')
-        self.minsize(900, 700)
+        size_window(self, 1100, 820)
         self.config_snapshot = deepcopy(config)
         self.config_path = config_path
         self.logger = logger
@@ -26,8 +26,9 @@ class UpdateWindow(tk.Toplevel):
         self.jobs = queue.Queue()
         self.transient(parent)
         self.protocol('WM_DELETE_WINDOW', self.close)
-        body = ttk.Frame(self, padding=16)
-        body.pack(fill='both', expand=True)
+        viewport = ScrollFrame(self, padding=16)
+        viewport.pack(fill='both', expand=True)
+        body = viewport.content
         ttk.Label(body, text=f"目标：{config['host']}:{config['port']} / {config['database']} · 账号：{config['user']}", wraplength=950).pack(anchor='w')
         ttk.Label(body, text='此窗口会修改数据库。核对预览和目标库后再提交。').pack(anchor='w', pady=(4, 10))
         row = ttk.Frame(body)
@@ -46,9 +47,9 @@ class UpdateWindow(tk.Toplevel):
         self.sql_text.pack(fill='x')
         controls = ttk.Frame(body)
         controls.pack(fill='x', pady=10)
-        self.preview_button = ttk.Button(controls, text='1. 预览更新', command=self.start_preview)
+        self.preview_button = ttk.Button(controls, style='Primary.TButton', text='1. 预览更新', command=self.start_preview)
         self.preview_button.pack(side='left')
-        self.submit_button = ttk.Button(controls, text='2. 确认并提交', command=self.submit, state='disabled')
+        self.submit_button = ttk.Button(controls, style='Danger.TButton', text='2. 确认并提交', command=self.submit, state='disabled')
         self.submit_button.pack(side='left', padx=10)
         self.status = ttk.Label(body, text='请先配置更新操作', wraplength=950)
         self.status.pack(anchor='w', pady=(0, 6))
@@ -69,6 +70,8 @@ class UpdateWindow(tk.Toplevel):
         x.grid(row=1, column=0, sticky='ew')
         self.table.configure(yscrollcommand=y.set, xscrollcommand=x.set)
         ttk.Label(body, text='预览不修改数据；计划值不是数据库转换后的值。预览有效期 5 分钟，修改参数后须重新预览。', wraplength=950).pack(anchor='w', pady=(8, 0))
+        if hasattr(parent, "design"):
+            parent.design.paint_widgets(self)
         self.reload()
         self.poll_id = self.after(100, self.poll)
         self.grab_set()
