@@ -18,6 +18,7 @@ jobs:
         shell: pwsh
         run: ./build.ps1
       - name: Capture desktop previews
+        if: always()
         shell: pwsh
         run: .\.venv\Scripts\python.exe tools/capture_ui.py
       - uses: actions/upload-artifact@v4

@@ -43,7 +43,7 @@ class ResponsiveWindowTests(unittest.TestCase):
                     self.assertEqual(window.vars['host'].get(),'unchanged-host')
                     self.assertEqual(panel.run.states,snapshot)
                     for widget in (panel.previous,panel.next_button):
-                        self.assertTrue(widget.winfo_ismapped())
+                        self.assertTrue(widget.winfo_ismapped(), f'zoom={zoom}, widget={widget}, root={window.winfo_geometry()}, panel={panel.winfo_geometry()}')
                         self.assertGreater(widget.winfo_width(),20)
                         self.assertLessEqual(widget.winfo_rootx()+widget.winfo_width(),window.winfo_rootx()+window.winfo_width()+2)
                         self.assertLessEqual(widget.winfo_rooty()+widget.winfo_height(),window.winfo_rooty()+window.winfo_height()+2)
