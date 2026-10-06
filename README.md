@@ -1,10 +1,12 @@
+> v0.7.0：正式更名为“客户自查运维工具”，EXE 为 ClientOpsTool.exe。SQL 查询参数新增可配置下拉框，显示名称与实际值分离，详见 [PARAMETERS.md](PARAMETERS.md)。为兼容已保存连接，用户配置仍沿用原 VideoUploadCheck 目录，无需迁移。
+
 > v0.6.1 可靠性修复：前面步骤失效时仍可逐步返回处理；配置错误指出具体文件、JSON 行列或引用原因；网络/接口失败提示处理方向。结果显示异常会恢复界面并继续接收结果，写入结果无法确认时必须先核实服务端。小窗口优先保留操作区，避免大字体遮挡导航。
 
 > v0.6.0 外观更新：默认曜石深色，可切换清爽浅色；右上角选择 85%–150% 字体缩放。Ctrl + 加号/减号调整，Ctrl+0 恢复 100%；F11 全屏，Esc 退出。外观偏好自动保存，窗口大小可拖动或最大化。小窗口自动用步骤下拉列表替代左侧栏，表单改成单列；高级工具支持双向滚动。缩放不会清空输入或改变流程状态。
 
 > v0.5.0 新增默认“客户流程向导”：按步骤配置说明、查询、更新和 API。配置方法见 [WORKFLOWS.md](WORKFLOWS.md)。原独立操作移到“高级工具（实施人员）”。升级请保留现场 SQL/API 配置，并添加 workflows.json；示例 ref 名称须与现场操作名称一致。
 
-# 视频上传检查 · Windows 数据库固定查询工具
+# 客户自查运维工具 · Windows 桌面版
 
 中文 Windows 桌面应用，使用 Python 3.12、Tkinter 和 PyMySQL。客户无需填写 SQL，可选择预配置查询并导出结果。
 
@@ -12,8 +14,8 @@
 
 ## 客户使用
 
-1. 下载 GitHub Actions 最新成功构建的 `VideoUploadCheck-Windows-x64` 压缩包，完整解压。
-2. 保持 `VideoUploadCheck.exe` 和 `queries.json` 在同一目录，双击 EXE。无需安装 Python。
+1. 下载 GitHub Actions 最新成功构建的 `ClientOpsTool-Windows-x64` 压缩包，完整解压。
+2. 保持 `ClientOpsTool.exe` 和 `queries.json` 在同一目录，双击 EXE。无需安装 Python。
 3. 填写 MySQL 地址、端口、数据库、用户名和密码，点击“测试连接”。
 4. 选择固定查询，填写所需参数，点击“执行查询”。结果为空会显示 0 行，不代表故障。
 5. 可导出当前结果为带 UTF-8 BOM 的 CSV，便于 Excel 打开。以公式字符开头的文本会添加单引号以防公式执行。

@@ -11,6 +11,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from workflows import load_workflows, WorkflowRun, WorkflowError, api_outcome
 from queries import bind_parameters
+from parameter_widgets import parameter_widget, ParameterChoice
 from database import run_query
 from updates import preview_update, apply_update, bind_update_parameters, display_update_value, UpdateError, CommitUncertain
 from api_client import ApiClient, ApiError
@@ -233,14 +234,14 @@ class WorkflowPanel(ttk.Frame):
             self.status.configure(text='数据库连接已变化，相关步骤结果已失效；请返回最早的未完成步骤重新核对。')
             self.refresh_nav()
 
-    def field(self, parent, row, key, label, variable, secret=False):
+    def field(self, parent, row, key, label, variable, secret=False, spec=None):
         group, col = divmod(row, 2)
         caption = ttk.Label(parent, text=label)
         caption.grid(row=group*2, column=col, sticky='w')
-        entry = ttk.Entry(parent, textvariable=variable, show='*' if secret else '')
+        entry = parameter_widget(parent, spec or {}, variable, show='*' if secret else '')
         entry.grid(row=group*2+1, column=col, sticky='ew', padx=(0, 10), pady=(2, 6))
         parent.columnconfigure(col, weight=1)
-        self.controls.append((entry, 'normal'))
+        self.controls.append((entry, 'readonly' if isinstance(entry, ParameterChoice) else 'normal'))
         if not hasattr(parent, '_fields'):
             parent._fields = []
             parent.bind('<Configure>', lambda e: self.reflow_fields(parent))
@@ -292,7 +293,7 @@ class WorkflowPanel(ttk.Frame):
                 value = saved.get('values', {}).get(p['name'], step.get('defaults', {}).get(p['name'], str(p.get('default', ''))))
                 var = self.parameters[p['name']] = tk.StringVar(value=value)
                 var.trace_add('write', self.changed)
-                self.field(form, n, p['name'], p['label'], var, p.get('secret', False))
+                self.field(form, n, p['name'], p['label'], var, p.get('secret', False), spec=p if step['type']=='query' else None)
             if not self.parameters:
                 ttk.Label(form, text='本步骤无需填写业务参数。').pack(anchor='w')
             if step['type'] == 'update':

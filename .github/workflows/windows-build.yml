@@ -23,10 +23,10 @@ jobs:
         run: .\.venv\Scripts\python.exe tools/capture_ui.py
       - uses: actions/upload-artifact@v4
         with:
-          name: VideoUploadCheck-Windows-x64
+          name: ClientOpsTool-Windows-x64
           path: |
             ui-previews/*.bmp
-            dist/VideoUploadCheck.exe
+            dist/ClientOpsTool.exe
             dist/workflows.json
             dist/workflows.example.json
             dist/WORKFLOWS.md
@@ -34,5 +34,6 @@ jobs:
             dist/api_requests.json
             dist/updates.json
             dist/updates.example.json
+            dist/PARAMETERS.md
             dist/README.md
           if-no-files-found: error

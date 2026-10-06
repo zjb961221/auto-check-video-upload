@@ -7,6 +7,7 @@ from updates import load_updates
 from api_config import load_api_requests
 from diagnostics import configuration_error
 from api_client import http_error_reason
+from parameter_choices import validate_choice
 
 
 class WorkflowError(ValueError):
@@ -92,6 +93,13 @@ def _load_workflows(path):
             step['operation'] = deepcopy(catalogues[kind][step['ref']])
             if set(defaults) - {p['name'] for p in step['operation'].get('params', [])}:
                 raise WorkflowError(context + '的 defaults 包含未定义参数')
+            if kind == 'query':
+                for param in step['operation'].get('params', []):
+                    if param['name'] in defaults:
+                        try:
+                            validate_choice(param, defaults[param['name']])
+                        except ValueError as exc:
+                            raise WorkflowError(context + '：defaults 必须填写已配置的选项 value') from exc
             if 'success' in step:
                 rule = step['success']
                 if kind != 'api' or not isinstance(rule, dict) or set(rule) != {'path', 'equals'} or not isinstance(rule['path'], str) or not rule['path']:

@@ -11,6 +11,7 @@ from tkinter import ttk, messagebox, filedialog
 from core import load_queries, run_query, export_csv
 from settings import load_settings, save_settings
 from queries import bind_parameters
+from parameter_widgets import parameter_widget, ParameterChoice
 from database import validate_connection, test_connection
 from diagnostics import VERSION, configure_logging, error_message, configuration_error
 from ui_theme import DesignSystem, ScrollFrame, size_window, enable_dpi_awareness
@@ -23,7 +24,7 @@ class App(tk.Tk):
     def __init__(self):
         enable_dpi_awareness()
         super().__init__()
-        self.title(f'视频上传检查 · v{VERSION}')
+        self.title(f'客户自查运维工具 · v{VERSION}')
         self.design = DesignSystem(self, SETTINGS.parent / 'appearance.json')
         size_window(self, 1280, 900)
         self.design.header(self)
@@ -188,7 +189,7 @@ class App(tk.Tk):
             label = spec['label'] + ('（年-月-日 时:分:秒）' if spec['type'] == 'datetime' else '')
             ttk.Label(self.param_frame, text=label).grid(row=row*2, column=group, sticky='w', padx=(0, 16))
             var = self.parameters[spec['name']] = tk.StringVar(value=str(spec['default']))
-            entry = ttk.Entry(self.param_frame, textvariable=var, width=38)
+            entry = parameter_widget(self.param_frame, spec, var, width=38)
             entry.grid(row=row*2+1, column=group, sticky='ew', padx=(0, 16), pady=(2, 6))
             self.param_frame.columnconfigure(group, weight=1)
             self.parameter_inputs.append(entry)
@@ -208,7 +209,7 @@ class App(tk.Tk):
         self.busy = value
         self.navigation.tab(self.workflow_tab, state='disabled' if value else 'normal')
         for widget in self.inputs + self.parameter_inputs:
-            widget.configure(state='disabled' if value else 'normal')
+            widget.configure(state='disabled' if value else 'readonly' if isinstance(widget, ParameterChoice) else 'normal')
         self.test.configure(state='disabled' if value else 'normal')
         self.execute.configure(state='disabled' if value or not self.queries else 'normal')
         self.choice.configure(state='disabled' if value else 'readonly')

@@ -255,10 +255,10 @@ class DesignSystem:
     def header(self, parent):
         bar=ttk.Frame(parent,padding=(18,12))
         bar.pack(fill='x')
-        brand=ttk.Label(bar,text='  VIDEO OPS',style='Heading.TLabel')
+        brand=ttk.Label(bar,text='  CLIENT OPS',style='Heading.TLabel')
         self.decorate(brand,'logo')
         brand.pack(side='left')
-        self.hint=ttk.Label(bar,text='视频运维工作台',style='Muted.TLabel')
+        self.hint=ttk.Label(bar,text='客户自查运维工具',style='Muted.TLabel')
         self.hint.pack(side='left',padx=14)
         self.theme_button=ttk.Button(bar,text='浅色模式' if self.theme=='曜石深色' else '深色模式',command=self.toggle_theme)
         self.theme_button.pack(side='right')

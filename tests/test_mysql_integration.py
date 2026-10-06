@@ -43,6 +43,29 @@ class MySQLIntegrationTests(unittest.TestCase):
             run_query(self.config, 'SELECT absent FROM samples', {})
         self.assertEqual(run_query(self.config, 'SELECT 1', {})[1][0], (1,))
 
+    def test_dropdown_query_filters_recorder_and_sorts_channels(self):
+        import pymysql
+        from pathlib import Path
+        from queries import load_queries, bind_parameters
+        query=load_queries(Path(__file__).parents[1]/'queries.json')[-1]
+        sql=query['sql'].replace('`9video`','`dropdown9`').replace('`10video`','`dropdown10`')
+        conn=pymysql.connect(**(self.config | {'port':3306}),autocommit=True)
+        try:
+            with conn.cursor() as cur:
+                for table in ('dropdown9','dropdown10'):
+                    cur.execute(f'CREATE TABLE IF NOT EXISTS {table} (id VARCHAR(20), name VARCHAR(100))')
+                    cur.execute(f'TRUNCATE TABLE {table}')
+                cur.executemany('INSERT INTO dropdown9 VALUES (%s,%s)',[('D10','150622000013200031-A'),('D2','150622000013200031-B'),('D1','150622000013200063-X')])
+                cur.execute('INSERT INTO dropdown10 VALUES (%s,%s)',('D3','150622000013200031-C'))
+            for recorder, expected in [('9',['D2','D10']),('10',['D3'])]:
+                values=bind_parameters(query,{'mine':'150622000013200031','recorder':recorder})
+                rows=run_query(self.config,sql,values)[1]
+                self.assertEqual([r[0] for r in rows],expected)
+        finally:
+            with conn.cursor() as cur:
+                cur.execute('DROP TABLE IF EXISTS dropdown9, dropdown10')
+            conn.close()
+
 
 @unittest.skipUnless(os.environ.get('VIDEO_CHECK_MYSQL_TEST') == '1', 'Requires isolated MySQL integration fixture')
 class MySQLUpdateIntegrationTests(unittest.TestCase):

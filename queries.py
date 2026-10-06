@@ -3,6 +3,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import re
+from parameter_choices import normalize_options, validate_choice
 
 MAX_ROWS = 2000
 MAX_PARAMS = 8
@@ -114,6 +115,7 @@ def load_queries(path):
                 raise ValueError(f'{name}：参数类型或标签无效')
             if not isinstance(spec['default'], (str, int)) or isinstance(spec['default'], bool):
                 raise ValueError(f'{name}：参数默认值必须是文本或整数')
+            normalize_options(spec)
             normalized.append(spec)
         names = [p['name'] for p in normalized]
         if len(set(names)) != len(names) or set(PLACEHOLDER.findall(sql)) != set(names):
@@ -137,6 +139,7 @@ def bind_parameters(query, raw):
     for spec in query['params']:
         name, label = spec['name'], spec['label']
         value = raw.get(name, '')
+        validate_choice(spec, value)
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f'请填写“{label}”')
         if len(value) > 4096:
