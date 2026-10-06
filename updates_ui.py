@@ -83,7 +83,7 @@ class UpdateWindow(tk.Toplevel):
     def invalidate(self, *args):
         self.preview = None
         self.submit_button.configure(state='disabled')
-        self.status.configure(text='配置或参数已变化，请重新预览；下方旧预览不能用于提交')
+        self.status.configure(text='上次提交结果待核实，请先查询确认，再解除操作限制。' if self.uncertain else '配置或参数已变化，请重新预览；下方旧预览不能用于提交')
 
     def reload(self):
         if self.busy:
@@ -96,7 +96,7 @@ class UpdateWindow(tk.Toplevel):
             return
         self.operations = operations
         self.choice.configure(values=[op['name'] for op in operations])
-        self.preview_button.configure(state='normal' if operations else 'disabled')
+        self.preview_button.configure(state='normal' if operations and not self.uncertain else 'disabled')
         if operations:
             self.choice.current(0)
             self.change_operation()

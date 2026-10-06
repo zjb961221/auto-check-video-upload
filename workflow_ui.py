@@ -671,6 +671,9 @@ class WorkflowPanel(ttk.Frame):
                 self.run.states[index] = 'uncertain' if write else 'failed'
             self.status.configure(text=status)
         self.set_busy(False)
+        previous_scroll = getattr(self, 'scroll_id', None)
+        if previous_scroll is not None:
+            self.after_cancel(previous_scroll)
         self.scroll_id = self.after_idle(lambda: self.canvas.yview_moveto(1))
         self.app.logger.info('event=workflow_operation action=%s state=%s', action, self.run.states[index])
 

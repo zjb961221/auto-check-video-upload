@@ -191,7 +191,9 @@ class DeleteWindowTests(unittest.TestCase):
                 self.assertIn('删除整条记录',panel.output.get('1.0','end'))
                 self.assertEqual(panel.run.states,['pending'])
                 self.assertEqual(str(panel.next_button['state']),'disabled')
+                old_scroll = panel.scroll_id
                 panel.jobs.put(('apply','ok',(1,1)));panel.consume_result()
+                self.assertNotIn(old_scroll,root.tk.call('after','info'))
                 self.assertEqual(panel.run.states,['ready'])
             finally:
                 ui.close();root.destroy()
