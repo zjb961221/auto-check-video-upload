@@ -106,7 +106,17 @@ class WindowTests(unittest.TestCase):
                     api.change_preset()
                     self.assertEqual(api.auth.get(), '登录后 Token')
                     self.assertIn('page', api.parameters)
+                    api.choice.current(0)
+                    api.change_preset()
+                    self.assertEqual(api.vars['base_url'].get(), 'http://127.0.0.1:12345')
+                    with patch('api_ui.messagebox.askyesno', return_value=False):
+                        api.close()
+                    self.assertTrue(api.winfo_exists())
+                    with patch('api_config.protect', return_value='ciphertext'):
+                        api.save_draft()
+                    self.assertTrue((Path(folder) / 'api_drafts.json').exists())
                 finally:
-                    api.close()
+                    with patch('api_ui.messagebox.askyesno', return_value=True):
+                        api.close()
             finally:
                 window.destroy()

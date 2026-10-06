@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import queue
+from pathlib import Path
+from api_drafts import Drafts
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -27,6 +29,8 @@ class ApiWindow(tk.Toplevel):
         self.catalogue_path = catalogue_path
         self.store = ProfileStore(profile_path)
         self.logger = logger
+        self.drafts = Drafts(Path(profile_path).with_name("api_drafts.json"))
+        self.active_name = None
         self.busy = False
         self.client = None
         self.client_key = None
@@ -62,7 +66,10 @@ class ApiWindow(tk.Toplevel):
             row, col = divmod(i, 2)
             ttk.Label(profile_tab, text=label).grid(row=row*2, column=col, sticky='w')
             var = self.vars[key] = tk.StringVar(value='20' if key == 'timeout' else '')
-            entry = ttk.Entry(profile_tab, textvariable=var, show='*' if key in ('password','token') else '')
+            entry = (ttk.Combobox(profile_tab, textvariable=var) if key == 'profile_name' else
+                     ttk.Entry(profile_tab, textvariable=var, show='*' if key in ('password','token') else ''))
+            if key == 'profile_name':
+                self.profile_choice = entry
             entry.grid(row=row*2+1, column=col, sticky='ew', padx=(0, 12), pady=(3, 8))
             self.controls.append(entry)
             profile_tab.columnconfigure(col, weight=1)
@@ -101,7 +108,7 @@ class ApiWindow(tk.Toplevel):
         self.output.configure(yscrollcommand=scroll.set)
         toolbar = ttk.Frame(body)
         toolbar.pack(fill='x', pady=(10,6))
-        for label, command in [('预览请求',self.preview), ('发送接口',self.send), ('登录 / 获取会话',self.login), ('清除会话',self.clear_session)]:
+        for label, command in [('保存接口草稿（加密）',self.save_draft), ('预览请求',self.preview), ('发送接口',self.send), ('登录 / 获取会话',self.login), ('清除会话',self.clear_session)]:
             button = ttk.Button(toolbar, text=label, command=command)
             button.pack(side='left', padx=(0,8))
             self.controls.append(button)
@@ -109,6 +116,7 @@ class ApiWindow(tk.Toplevel):
         self.progress.pack(fill='x')
         self.status = ttk.Label(body, text='请配置服务地址与接口', wraplength=1000)
         self.status.pack(anchor='w', pady=(6,0))
+        self.refresh_profiles()
         self.reload()
         self.after(100,self.poll)
 
@@ -124,10 +132,13 @@ class ApiWindow(tk.Toplevel):
         except (OSError, ValueError, TypeError):
             messagebox.showerror('接口配置错误','无法读取 api_requests.json，请检查 JSON 格式和参数定义。',parent=self)
             return
+        self.capture_draft()
+        previous = self.active_name
+        self.active_name = None
         self.presets = presets
         self.choice.configure(values=[p['name'] for p in presets])
         if presets:
-            self.choice.current(0)
+            self.choice.current(next((i for i, p in enumerate(presets) if p["name"] == previous), 0))
             self.change_preset()
         else:
             self.status.configure(text='未配置接口，请参考 api_requests.json 示例填写。')
@@ -147,6 +158,7 @@ class ApiWindow(tk.Toplevel):
     def change_preset(self,event=None):
         if not self.presets:
             return
+        self.capture_draft()
         preset = self.presets[self.choice.current()]
         self.vars['profile_name'].set(preset.get('profile_name','默认服务'))
         profile = dict(preset.get('profile',{}))
@@ -171,6 +183,51 @@ class ApiWindow(tk.Toplevel):
             entry.grid(row=row*2+1,column=col,sticky='ew',padx=(0,12),pady=(3,6))
             self.form.columnconfigure(col,weight=1)
             self.parameter_widgets.append(entry)
+        self.active_name = preset['name']
+        default = self.draft_snapshot()
+        try:
+            draft = self.drafts.open(self.active_name, default)
+            for key, value in draft['fields'].items():
+                if key in self.vars:
+                    self.vars[key].set(value)
+            if draft['auth'] in AUTH_LABELS:
+                self.auth.set(draft['auth'])
+            self.remember.set(draft['remember'])
+            self.system_proxy.set(draft['system_proxy'])
+            for key, value in draft['parameters'].items():
+                if key in self.parameters:
+                    self.parameters[key].set(value)
+            for widget, key in ((self.request_text, 'request'), (self.login_text, 'login')):
+                widget.delete('1.0', 'end')
+                widget.insert('1.0', draft[key])
+        except (OSError, ValueError, TypeError):
+            self.drafts.values[self.active_name] = default
+            self.status.configure(text='草稿无法恢复，已加载原始接口。请核对 Windows 账号；重新保存可覆盖该草稿。')
+
+    def draft_snapshot(self):
+        return dict(fields={k: v.get() for k, v in self.vars.items()}, auth=self.auth.get(),
+                    remember=self.remember.get(), system_proxy=self.system_proxy.get(),
+                    parameters={k: v.get() for k, v in self.parameters.items()},
+                    request=self.request_text.get('1.0', 'end-1c'), login=self.login_text.get('1.0', 'end-1c'))
+
+    def capture_draft(self):
+        if self.active_name is not None:
+            self.drafts.capture(self.active_name, self.draft_snapshot())
+
+    def save_draft(self):
+        if self.busy or self.active_name is None:
+            return
+        try:
+            self.drafts.save(self.active_name, self.draft_snapshot())
+            self.status.configure(text='接口草稿已加密保存，下次自动恢复。草稿包括参数和鉴权信息，仅当前 Windows 账号可解密。')
+        except (OSError, ValueError, TypeError):
+            messagebox.showerror('草稿未保存', '无法加密保存草稿，请检查 Windows 环境及文件权限；当前编辑内容仍在窗口中。', parent=self)
+
+    def refresh_profiles(self):
+        try:
+            self.profile_choice.configure(values=sorted(self.store.read()))
+        except (OSError, ValueError, TypeError):
+            self.status.configure(text='已保存连接列表无法读取，请检查配置文件。')
 
     def profile(self):
         result = {name:var.get() for name,var in self.vars.items() if name != 'profile_name'}
@@ -192,7 +249,8 @@ class ApiWindow(tk.Toplevel):
     def save(self):
         try:
             self.store.save(self.vars['profile_name'].get(),self.profile(),self.remember.get())
-            self.status.configure(text='当前服务连接已保存；接口定义请保存在 api_requests.json。')
+            self.refresh_profiles()
+            self.status.configure(text='当前服务连接已保存；请求修改可通过“保存接口草稿（加密）”保存。')
         except (OSError,ValueError,TypeError):
             messagebox.showerror('保存失败','无法保存 API 连接，请检查配置、文件权限及 Windows 加密环境。',parent=self)
 
@@ -201,6 +259,8 @@ class ApiWindow(tk.Toplevel):
             profile=self.store.load(self.vars['profile_name'].get())
             if profile is None:
                 raise ApiError('没有这个名称的已保存连接')
+            if not messagebox.askyesno('恢复连接', '将替换当前服务与鉴权设置，是否继续？', parent=self):
+                return
             self.fill_profile(profile)
             self.status.configure(text='已恢复服务连接；登录会话需重新获取。')
         except (OSError,ValueError,TypeError):
@@ -316,6 +376,7 @@ class ApiWindow(tk.Toplevel):
             if action=='login' or 200<=response.status<300:
                 try:
                     self.store.save(name,profile,remember)
+                    self.refresh_profiles()
                 except (OSError,ValueError,TypeError):
                     self.status.configure(text=self.status.cget('text')+' · 连接信息未能保存')
         self.after(100,self.poll)
@@ -323,6 +384,9 @@ class ApiWindow(tk.Toplevel):
     def close(self):
         if self.busy:
             messagebox.showinfo('请求进行中','请等待请求返回；修改类接口中断后可能无法确认结果。',parent=self)
+            return
+        self.capture_draft()
+        if self.drafts.dirty() and not messagebox.askyesno('存在未保存的接口修改', '有接口修改尚未保存为草稿。关闭将丢弃这些修改，是否关闭？\n如需保留，请取消后切换到修改过的接口并保存草稿。', parent=self):
             return
         self.clear_session()
         self.grab_release()
