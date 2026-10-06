@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "default_profile": "",
+  "profiles": [
+    {
+      "id": "limin",
+      "name": "利民煤矿",
+      "host": "192.0.2.9",
+      "port": 3306,
+      "database": "wvp",
+      "user": "client_ops",
+      "password": "",
+      "ssl_ca": ""
+    },
+    {
+      "id": "huangbaici",
+      "name": "黄白茨煤矿",
+      "host": "192.0.2.10",
+      "port": 3306,
+      "database": "wvp",
+      "user": "client_ops",
+      "password_env": "HUANGBAICI_DB_PASSWORD",
+      "ssl_ca": ""
+    }
+  ]
+}

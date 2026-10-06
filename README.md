@@ -1,3 +1,5 @@
+> v0.9.0：新增配置文件驱动的煤矿连接下拉框，选择煤矿自动回填数据库连接；支持每矿本机加密保存、重载配置和切换后旧预览失效。配置及 API 默认地址说明见 [DATABASE_PROFILES.md](DATABASE_PROFILES.md)。升级请保留现场配置。
+
 > v0.8.0：新增按主键 / 非空唯一键删除，支持完整记录预览、数量限制、确认删除及并发校验。参数可配置默认值，流程步骤可覆盖默认值。配置见 [DELETES.md](DELETES.md)；升级请保留现场配置。
 
 > v0.7.0：正式更名为“客户自查运维工具”，EXE 为 ClientOpsTool.exe。SQL 查询参数新增可配置下拉框，显示名称与实际值分离，详见 [PARAMETERS.md](PARAMETERS.md)。为兼容已保存连接，用户配置仍沿用原 VideoUploadCheck 目录，无需迁移。

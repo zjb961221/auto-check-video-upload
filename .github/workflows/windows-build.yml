@@ -36,6 +36,9 @@ jobs:
             dist/updates.example.json
             dist/deletes.example.json
             dist/DELETES.md
+            dist/database_profiles.json
+            dist/database_profiles.example.json
+            dist/DATABASE_PROFILES.md
             dist/PARAMETERS.md
             dist/README.md
           if-no-files-found: error

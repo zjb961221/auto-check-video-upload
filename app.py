@@ -67,14 +67,18 @@ class App(tk.Tk):
         labels = [('host', '地址'), ('port', '端口'), ('database', '数据库'), ('user', '用户名'), ('password', '密码'), ('ssl_ca', 'CA 证书路径（可选）')]
         for i, (key, label) in enumerate(labels):
             row, col = divmod(i, 3)
-            ttk.Label(conn, text=label).grid(row=row*2, column=col, sticky='w', padx=6)
+            ttk.Label(conn, text=label).grid(row=row*2+1, column=col, sticky='w', padx=6)
             var = self.vars[key] = tk.StringVar(value=defaults[key])
             entry = ttk.Entry(conn, textvariable=var, show='*' if key == 'password' else '')
-            entry.grid(row=row*2+1, column=col, sticky='ew', padx=6, pady=(3, 8))
+            entry.grid(row=row*2+2, column=col, sticky='ew', padx=6, pady=(3, 8))
             self.inputs.append(entry)
             conn.columnconfigure(col, weight=1)
+        self.mine_applying = False
+        from mine_widgets import MineSelector
+        self.mines = MineSelector(self, ROOT / 'database_profiles.json', SETTINGS.parent / 'database_profiles.local.json')
+        self.mines.add(conn).grid(row=0, column=0, columnspan=3, sticky='ew')
         buttons = ttk.Frame(conn)
-        buttons.grid(row=4, column=0, columnspan=3, sticky='w')
+        buttons.grid(row=5, column=0, columnspan=3, sticky='w')
         self.test = ttk.Button(buttons, text='测试连接', command=lambda: self.start(True))
         self.test.pack(side='left')
         save_button = ttk.Button(buttons, text='保存连接信息', command=self.save)
@@ -208,6 +212,7 @@ class App(tk.Tk):
 
     def set_busy(self, value):
         self.busy = value
+        self.mines.set_busy(value)
         self.navigation.tab(self.workflow_tab, state='disabled' if value else 'normal')
         for widget in self.inputs + self.parameter_inputs:
             widget.configure(state='disabled' if value else 'readonly' if isinstance(widget, ParameterChoice) else 'normal')

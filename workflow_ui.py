@@ -220,7 +220,7 @@ class WorkflowPanel(ttk.Frame):
 
     def connection_changed(self, *args):
         # A new target invalidates prior DB evidence and dependent confirmations.
-        if self.loading or not self.run:
+        if self.loading or not self.run or getattr(self.app, 'mine_applying', False):
             return
         affected = [i for i, step in enumerate(self.run.flow['steps'])
                     if step['type'] in ('query', 'update', 'delete') and
@@ -347,6 +347,7 @@ class WorkflowPanel(ttk.Frame):
         self.responsive()
 
     def db_form(self):
+        self.app.mines.add(self.body).pack(fill='x')
         box = ttk.LabelFrame(self.body, text='数据库连接（与高级工具共享，可保存）', padding=8)
         box.pack(fill='x')
         for n, (key, label) in enumerate([('host', '地址'), ('port', '端口'), ('database', '数据库'), ('user', '用户名'), ('password', '密码'), ('ssl_ca', 'CA 证书路径（可选）')]):
@@ -487,6 +488,7 @@ class WorkflowPanel(ttk.Frame):
 
     def set_busy(self, busy):
         self.busy = busy
+        self.app.mines.set_busy(busy)
         for widget, state in self.controls:
             widget.configure(state='disabled' if busy else state)
         self.selector.configure(state='disabled' if busy else 'readonly')

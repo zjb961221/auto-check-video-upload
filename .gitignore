@@ -6,3 +6,4 @@ dist/
 *.spec
 connection.json
 .env
+database_profiles.local.json
