@@ -13,7 +13,7 @@ from workflows import load_workflows, WorkflowRun, WorkflowError, api_outcome
 from queries import bind_parameters
 from parameter_widgets import parameter_widget, ParameterChoice
 from database import run_query
-from updates import preview_update, apply_update, bind_update_parameters, display_update_value, UpdateError, CommitUncertain
+from updates import preview_update, apply_update, bind_update_parameters, display_update_value, is_delete, preview_fields, UpdateError, CommitUncertain
 from api_client import ApiClient, ApiError
 from api_config import ProfileStore, bind_api_parameters
 from core import export_csv
@@ -21,7 +21,7 @@ from diagnostics import error_message, configuration_error
 
 STATE_LABELS = {'pending': '待办理', 'ready': '待确认', 'done': '已完成',
                 'skipped': '已跳过', 'failed': '失败', 'uncertain': '结果待核实', 'stale': '需重新办理'}
-TYPE_LABELS = {'note': '说明与准备', 'query': '数据库查询', 'update': '数据库修改', 'api': 'API 调用'}
+TYPE_LABELS = {'note': '说明与准备', 'query': '数据库查询', 'update': '数据库修改', 'delete': '数据库删除', 'api': 'API 调用'}
 
 
 class WorkflowPanel(ttk.Frame):
@@ -223,13 +223,13 @@ class WorkflowPanel(ttk.Frame):
         if self.loading or not self.run:
             return
         affected = [i for i, step in enumerate(self.run.flow['steps'])
-                    if step['type'] in ('query', 'update') and
+                    if step['type'] in ('query', 'update', 'delete') and
                     (self.run.states[i] != 'pending' or i == self.run.index)]
         if affected:
             for i in range(min(affected), len(self.run.states)):
                 if self.run.states[i] not in ('pending', 'uncertain'):
                     self.run.states[i] = 'stale'
-            if self.run.step['type'] in ('query', 'update'):
+            if self.run.step['type'] in ('query', 'update', 'delete'):
                 self.changed()
             self.status.configure(text='数据库连接已变化，相关步骤结果已失效；请返回最早的未完成步骤重新核对。')
             self.refresh_nav()
@@ -282,13 +282,13 @@ class WorkflowPanel(ttk.Frame):
         else:
             operation = step['operation']
             ttk.Label(self.body, text='操作：' + operation['name'], wraplength=740).pack(anchor='w', pady=(0, 8))
-            if step['type'] in ('query', 'update'):
+            if step['type'] in ('query', 'update', 'delete'):
                 self.db_form()
             else:
                 self.api_form(operation)
             form = ttk.LabelFrame(self.body, text='本步骤参数', padding=8)
             form.pack(fill='x', pady=8)
-            condition_params = {p for _, _, p in operation['compiled']['conditions']} if step['type'] == 'update' else set()
+            condition_params = {p for _, _, p in operation['compiled']['conditions']} if step['type'] in ('update', 'delete') else set()
             for n, p in enumerate(operation.get('params', [])):
                 value = saved.get('values', {}).get(p['name'], step.get('defaults', {}).get(p['name'], str(p.get('default', ''))))
                 var = self.parameters[p['name']] = tk.StringVar(value=value)
@@ -313,12 +313,12 @@ class WorkflowPanel(ttk.Frame):
                 ttk.Label(self.body, text='选择空字符串或数据库 NULL 时，对应输入框内容不参与赋值。', wraplength=740).pack(anchor='w')
             actions = ttk.Frame(self.body)
             actions.pack(fill='x')
-            label = {'query': '执行本步查询', 'update': '1. 预览本步修改', 'api': '发送本步接口'}[step['type']]
+            label = {'query': '执行本步查询', 'update': '1. 预览本步修改', 'delete': '1. 预览本步删除', 'api': '发送本步接口'}[step['type']]
             self.action_button = self.button(actions, label, self.execute)
             self.action_button.configure(style='Primary.TButton')
             self.app.design.decorate(self.action_button, 'api' if step['type']=='api' else 'database')
-            if step['type'] == 'update':
-                self.apply_button = self.button(actions, '2. 确认并提交', self.submit)
+            if step['type'] in ('update', 'delete'):
+                self.apply_button = self.button(actions, '2. 确认删除' if step['type']=='delete' else '2. 确认并提交', self.submit)
             reconcile_row = ttk.Frame(self.body)
             reconcile_row.pack(fill='x')
             self.reconcile_button = self.button(reconcile_row, '已核实服务端，允许重新操作', self.reconcile)
@@ -505,7 +505,7 @@ class WorkflowPanel(ttk.Frame):
     def launch(self, action, function, write=False):
         self.pending_action = action
         self.snapshot()
-        if self.run.step['type'] in ('query', 'update'):
+        if self.run.step['type'] in ('query', 'update', 'delete'):
             self.target_label = self.app.vars['host'].get() + ' / ' + self.app.vars['database'].get()
         else:
             self.target_label = self.current_profile().get('base_url', '')
@@ -539,7 +539,7 @@ class WorkflowPanel(ttk.Frame):
             operation = step['operation']
             values = {k: v.get() for k, v in self.parameters.items()}
             kind = step['type']
-            if kind in ('query', 'update'):
+            if kind in ('query', 'update', 'delete'):
                 config = self.app.config()
                 if kind == 'query':
                     params = bind_parameters(operation, values)
@@ -584,7 +584,9 @@ class WorkflowPanel(ttk.Frame):
             return
         snapshot = self.preview
         config = snapshot.config
-        if not messagebox.askyesno('确认修改数据库', f'目标：{config["host"]} / {config["database"]}\n步骤：{self.run.step["title"]}\n匹配 {len(snapshot.rows)} 行。确认按预览提交？', parent=self):
+        deleting = is_delete(snapshot.operation)
+        warning = '永久删除预览中的整条记录，无法通过本工具撤销。' if deleting else '更新预览中的字段。'
+        if not messagebox.askyesno('确认删除数据库记录' if deleting else '确认修改数据库', f'目标：{config["host"]} / {config["database"]}\n步骤：{self.run.step["title"]}\n匹配 {len(snapshot.rows)} 行。{warning}确认按预览提交？', parent=self):
             return
         self.preview = None
         self.launch('apply', lambda: apply_update(snapshot), write=True)
@@ -641,19 +643,20 @@ class WorkflowPanel(ttk.Frame):
             self.show_result(text)
             self.run.ready()
             self.status.configure(text='查询成功，请核对结果后点击下一步。零行结果不代表业务检查通过。')
-        elif action == 'update':
+        elif action in ('update', 'delete'):
             self.preview = data
             lines = [f'{stamp} · 预览 {len(data.rows)} 行，尚未修改数据库。']
             for row in data.rows:
                 key = ', '.join(f'{k}={display_update_value(row[data.columns.index(k)])}' for k in data.metadata[2])
-                for column, param in data.operation['compiled']['changes']:
-                    lines.append(f'{key} | {column}: {display_update_value(row[data.columns.index(column)])} → {display_update_value(data.params[param])}')
+                for column, param in preview_fields(data):
+                    after = '删除整条记录' if param is None else display_update_value(data.params[param])
+                    lines.append(f'{key} | {column}: {display_update_value(row[data.columns.index(column)])} → {after}')
             text = '\n'.join(lines)
             self.results[index] = {'text': text}
             self.show_result(text)
             self.status.configure(text='预览已生成；核对后点击“确认并提交”。' if data.rows else '未匹配记录，不能提交或完成本步骤。')
         elif action == 'apply':
-            text = f'{stamp} · 事务已提交：匹配 {data[0]} 行，实际修改 {data[1]} 行。'
+            text = f'{stamp} · 事务已提交：匹配 {data[0]} 行，实际影响 {data[1]} 行。'
             self.results[index] = {'text': text}
             self.show_result(text)
             self.run.ready()

@@ -18,3 +18,6 @@ Copy-Item updates.example.json dist\updates.example.json -Force
 Copy-Item PARAMETERS.md dist\PARAMETERS.md -Force
 Copy-Item README.md dist\README.md -Force
 Write-Host 'Done: distribute ClientOpsTool.exe together with all configuration files and documents from dist.'
+
+Copy-Item deletes.example.json dist\deletes.example.json -Force
+Copy-Item DELETES.md dist\DELETES.md -Force

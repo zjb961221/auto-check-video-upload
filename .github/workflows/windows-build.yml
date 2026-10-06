@@ -34,6 +34,8 @@ jobs:
             dist/api_requests.json
             dist/updates.json
             dist/updates.example.json
+            dist/deletes.example.json
+            dist/DELETES.md
             dist/PARAMETERS.md
             dist/README.md
           if-no-files-found: error

@@ -54,19 +54,53 @@ def parse_update(sql):
                 where_sql=' AND '.join(f'{quote(c)} {op} %({p})s' for c, op, p in conditions))
 
 
+def parse_mutation(sql):
+    if not isinstance(sql, str) or not re.match(r'^\s*DELETE\b', sql, re.I):
+        result = parse_update(sql)
+        result['kind'] = 'update'
+        return result
+    text = sql.strip().removesuffix(';').rstrip()
+    match = re.fullmatch(rf'DELETE\s+FROM\s+({IDENT})\s+WHERE\s+(.+)', text, re.I | re.S)
+    if not match:
+        raise UpdateError('删除仅支持 DELETE FROM 单表 WHERE 字段=%(参数)s；必须使用主键或唯一键定位')
+    table, where = match.groups()
+    conditions = []
+    for part in re.split(r'\s+AND\s+', where, flags=re.I):
+        item = re.fullmatch(rf'\s*({IDENT})\s*=\s*{PARAM}\s*', part)
+        if not item:
+            raise UpdateError('删除条件仅支持等值参数，多条件用 AND；禁止 LIKE、范围条件、OR、注释和多语句')
+        column, parameter = item.groups()
+        conditions.append((column.strip('`'), '=', parameter))
+    if len({c.lower() for c, _, _ in conditions}) != len(conditions):
+        raise UpdateError('删除条件不能重复同一个字段')
+    return dict(kind='delete', table=table.strip('`'), changes=[], conditions=conditions,
+                set_sql='', where_sql=' AND '.join(f'{quote(c)}=%({p})s' for c, _, p in conditions))
+
+
+def is_delete(operation):
+    return operation['compiled'].get('kind') == 'delete'
+
+
+def preview_fields(preview):
+    """Field/value pairs used by both confirmation interfaces."""
+    if is_delete(preview.operation):
+        return [(column, None) for column in preview.columns]
+    return preview.operation['compiled']['changes']
+
+
 def load_updates(path):
     path = Path(path)
     if not path.exists():
         return []
     items = json.loads(path.read_text(encoding='utf-8-sig'))
     if not isinstance(items, list):
-        raise UpdateError('updates.json 必须为更新操作数组')
+        raise UpdateError('updates.json 必须为更新或删除操作数组')
     seen = set()
     for item in items:
         if not isinstance(item, dict) or not isinstance(item.get('name'), str) or not item['name'].strip() or item['name'] in seen:
             raise UpdateError('更新操作名称不能为空或重复')
         seen.add(item['name'])
-        item['compiled'] = parse_update(item.get('sql'))
+        item['compiled'] = parse_mutation(item.get('sql'))
         limit = item.get('max_rows', 1)
         if type(limit) is not int or not 1 <= limit <= 100:
             raise UpdateError('max_rows 必须为 1–100 的整数，默认 1')
@@ -90,8 +124,13 @@ def validate_parameter_spec(item):
         p.setdefault('label', name)
         p.setdefault('type', 'text')
         p.setdefault('default', '')
-        if p['type'] not in ('text', 'integer', 'datetime') or not isinstance(p['label'], str) or not isinstance(p['default'], (str, int)):
+        if p['type'] not in ('text', 'integer', 'datetime') or not isinstance(p['label'], str) or type(p['default']) not in (str, int):
             raise UpdateError('参数仅支持 text、integer、datetime，标签必须为文本')
+        if str(p['default']).strip():
+            try:
+                bind_parameters(dict(params=[p], date_ranges=[]), {name: str(p['default'])})
+            except ValueError as exc:
+                raise UpdateError(f'参数“{p["label"]}”的 default 无效：{exc}') from None
         normalized.append(p)
     names = [p['name'] for p in normalized]
     compiled = item['compiled']
@@ -179,6 +218,17 @@ def inspect_table(cursor, operation):
         raise UpdateError('不允许修改主键字段')
     if changes & {r[0] for r in schema if any(flag in r[3].upper() for flag in ('VIRTUAL GENERATED', 'STORED GENERATED'))}:
         raise UpdateError('不允许修改生成列')
+    if is_delete(operation):
+        cursor.execute('SELECT INDEX_NAME, COLUMN_NAME, SUB_PART FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s AND NON_UNIQUE=0 ORDER BY INDEX_NAME, SEQ_IN_INDEX', (table,))
+        indexes = {}
+        for index, column, prefix in cursor.fetchall():
+            indexes.setdefault(index, []).append((column, prefix))
+        nonnullable = {r[0] for r in schema if r[2] == 'NO'}
+        unique_keys = tuple(tuple(c for c, _ in parts) for _, parts in sorted(indexes.items())
+                            if all(c in nonnullable and prefix is None for c, prefix in parts))
+        if not any(set(key) <= conditions for key in (keys,) + unique_keys):
+            raise UpdateError('删除 WHERE 必须包含完整主键或非空唯一键的等值条件；名称或非唯一通道编码不能单独定位。联合唯一键须填写全部字段。')
+        return identity, schema, keys, unique_keys
     return identity, schema, keys
 
 
@@ -191,13 +241,13 @@ def select_rows(cursor, operation, params, metadata, lock=False):
     cursor.execute(sql, params)
     rows = tuple(tuple(r) for r in cursor.fetchall())
     if len(rows) > operation['max_rows']:
-        raise UpdateError(f"匹配记录超过上限 {operation['max_rows']} 行，已拒绝更新；请缩小 WHERE 范围")
+        raise UpdateError(f"匹配记录超过上限 {operation['max_rows']} 行，已拒绝操作；请缩小 WHERE 范围")
     return columns, rows
 
 
 def preview_update(config, operation, raw_params, connect=None, modes=None):
     operation = deepcopy(operation)
-    operation['compiled'] = parse_update(operation['sql'])
+    operation['compiled'] = parse_mutation(operation['sql'])
     params = bind_update_parameters(operation, raw_params, modes)
     conn = connect_database(config, connect)
     try:
@@ -216,7 +266,7 @@ def apply_update(preview, connect=None):
     if time.monotonic() - preview.created > PREVIEW_TTL:
         raise UpdateError('预览已超过 5 分钟，请重新预览')
     if not preview.rows:
-        raise UpdateError('没有匹配记录，未执行更新')
+        raise UpdateError('没有匹配记录，未执行操作')
     conn = connect_database(preview.config, connect)
     committing = False
     try:
@@ -237,12 +287,14 @@ def apply_update(preview, connect=None):
             sql = (f"UPDATE {quote(compiled['table'])} SET " +
                    ', '.join(f'{quote(c)}=%s' for c, _ in compiled['changes']) +
                    ' WHERE ' + ' AND '.join(f'{quote(k)}=%s' for k in metadata[2]))
+            if is_delete(preview.operation):
+                sql = f"DELETE FROM {quote(compiled['table'])} WHERE " + ' AND '.join(f'{quote(k)}=%s' for k in metadata[2])
             values = tuple(preview.params[p] for _, p in compiled['changes'])
             changed = 0
             for row in rows:
                 cur.execute(sql, values + tuple(row[i] for i in key_positions))
-                if cur.rowcount not in (0, 1):
-                    raise UpdateError('主键更新影响数量异常，已停止提交')
+                if cur.rowcount not in ((1,) if is_delete(preview.operation) else (0, 1)):
+                    raise UpdateError('主键操作影响数量异常，已停止提交')
                 changed += cur.rowcount
                 if cur.warning_count:
                     raise UpdateError('数据库产生转换或截断警告，已停止提交；请核对字段类型和值')

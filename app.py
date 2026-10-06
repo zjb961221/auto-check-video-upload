@@ -104,7 +104,7 @@ class App(tk.Tk):
         self.execute.pack(side='left')
         self.export = ttk.Button(toolbar, text='导出 CSV', command=self.export_result, state='disabled')
         self.export.pack(side='left', padx=10)
-        update_button = ttk.Button(toolbar, text='数据库更新…', command=self.open_updates)
+        update_button = ttk.Button(toolbar, text='数据库更新 / 删除…', command=self.open_updates)
         update_button.pack(side='left', padx=(0, 10))
         self.inputs.append(update_button)
         api_button = ttk.Button(toolbar, text='API 调用…', command=self.open_api)

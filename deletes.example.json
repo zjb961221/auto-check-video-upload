@@ -1,0 +1,20 @@
+[
+  {
+    "name": "按主键删除视频融合平台通道记录",
+    "description": "删除整条通道记录，不是清空音频字段。须先确认实际主键字段为 id。",
+    "sql": "DELETE FROM `wvp_device_channel` WHERE `id`=%(id)s",
+    "max_rows": 1,
+    "params": [
+      {"name": "id", "label": "待删除记录主键", "type": "integer", "default": ""}
+    ]
+  },
+  {
+    "name": "按唯一通道编码删除视频融合平台通道记录",
+    "description": "仅当 channel_id 在数据库中有非空唯一索引时可用；否则使用主键或完整联合唯一键。",
+    "sql": "DELETE FROM `wvp_device_channel` WHERE `channel_id`=%(channel_id)s",
+    "max_rows": 1,
+    "params": [
+      {"name": "channel_id", "label": "待删除的唯一通道编码", "type": "text", "default": ""}
+    ]
+  }
+]

@@ -142,3 +142,62 @@ class MySQLUpdateIntegrationTests(unittest.TestCase):
         with self.assertRaises(UpdateError):
             preview_update(self.config, self.operation, {'new':'','start':'2'}, modes={'new':'null'})
         self.assertEqual(self.rows(), ((1,'a'), (2,'b')))
+
+    def delete_operation(self, where='id=%(id)s'):
+        from updates import parse_mutation, validate_parameter_spec
+        names=['name'] if where=='name=%(name)s' else ['id']
+        op=dict(name='删除测试记录',sql='DELETE FROM updates_fixture WHERE '+where,max_rows=1,
+                params=[dict(name=n,type='text' if n=='name' else 'integer',default='') for n in names])
+        op['compiled']=parse_mutation(op['sql'])
+        validate_parameter_spec(op)
+        return op
+
+    def test_delete_preview_and_commit_by_primary_key(self):
+        from updates import preview_update, apply_update
+        snap=preview_update(self.config,self.delete_operation(),{'id':'2'})
+        self.assertEqual(snap.rows,((2,'b'),))
+        self.assertEqual(self.rows(),((1,'a'),(2,'b')))
+        self.assertEqual(apply_update(snap),(1,1))
+        self.assertEqual(self.rows(),((1,'a'),))
+
+    def test_delete_unique_key_and_schema_change(self):
+        from updates import preview_update, apply_update, UpdateError
+        op=self.delete_operation('name=%(name)s')
+        with self.assertRaises(UpdateError):
+            preview_update(self.config,op,{'name':'b'})  # Nullable unique keys deliberately refused.
+        with self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE updates_fixture MODIFY name VARCHAR(30) NOT NULL')
+        snap=preview_update(self.config,op,{'name':'b'})
+        with self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE updates_fixture DROP INDEX name')
+        with self.assertRaises(UpdateError):
+            apply_update(snap)
+        self.assertEqual(self.rows(),((1,'a'),(2,'b')))
+        with self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE updates_fixture ADD UNIQUE KEY name_unique(name)')
+        snap=preview_update(self.config,op,{'name':'b'})
+        self.assertEqual(apply_update(snap),(1,1))
+
+    def test_delete_concurrent_change_blocks_removal(self):
+        from updates import preview_update, apply_update, UpdateError
+        snap=preview_update(self.config,self.delete_operation(),{'id':'2'})
+        with self.conn.cursor() as cur:
+            cur.execute("UPDATE updates_fixture SET name='changed' WHERE id=2")
+        with self.assertRaises(UpdateError):
+            apply_update(snap)
+        self.assertEqual(self.rows(),((1,'a'),(2,'changed')))
+
+    def test_delete_foreign_key_error_preserves_record(self):
+        import pymysql
+        from updates import preview_update, apply_update
+        with self.conn.cursor() as cur:
+            cur.execute('CREATE TABLE delete_child (id INT PRIMARY KEY, parent INT, FOREIGN KEY(parent) REFERENCES updates_fixture(id)) ENGINE=InnoDB')
+            cur.execute('INSERT INTO delete_child VALUES(1,2)')
+        try:
+            snap=preview_update(self.config,self.delete_operation(),{'id':'2'})
+            with self.assertRaises(pymysql.IntegrityError):
+                apply_update(snap)
+            self.assertEqual(self.rows(),((1,'a'),(2,'b')))
+        finally:
+            with self.conn.cursor() as cur:
+                cur.execute('DROP TABLE delete_child')

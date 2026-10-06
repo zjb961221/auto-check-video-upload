@@ -7,18 +7,19 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 from diagnostics import error_message
-from updates import load_updates, preview_update, apply_update, UpdateError, CommitUncertain, bind_update_parameters, display_update_value
+from updates import load_updates, preview_update, apply_update, UpdateError, CommitUncertain, bind_update_parameters, display_update_value, is_delete, preview_fields
 
 
 class UpdateWindow(tk.Toplevel):
     def __init__(self, parent, config, config_path, logger):
         super().__init__(parent)
-        self.title('数据库更新 · 先预览，再确认提交')
+        self.title('数据库更新 / 删除 · 先预览，再确认提交')
         size_window(self, 1100, 820)
         self.config_snapshot = deepcopy(config)
         self.config_path = config_path
         self.logger = logger
         self.busy = False
+        self.uncertain = False
         self.preview = None
         self.operations = []
         self.parameters = {}
@@ -31,19 +32,19 @@ class UpdateWindow(tk.Toplevel):
         viewport.pack(fill='both', expand=True)
         body = viewport.content
         ttk.Label(body, text=f"目标：{config['host']}:{config['port']} / {config['database']} · 账号：{config['user']}", wraplength=950).pack(anchor='w')
-        ttk.Label(body, text='此窗口会修改数据库。核对预览和目标库后再提交。').pack(anchor='w', pady=(4, 10))
+        ttk.Label(body, text='此窗口会更新或删除数据库记录。核对预览和目标库后再提交。').pack(anchor='w', pady=(4, 10))
         row = ttk.Frame(body)
         row.pack(fill='x')
         self.choice = ttk.Combobox(row, state='readonly')
         self.choice.pack(side='left', fill='x', expand=True)
         self.choice.bind('<<ComboboxSelected>>', self.change_operation)
-        self.reload_button = ttk.Button(row, text='重新加载更新配置', command=self.reload)
+        self.reload_button = ttk.Button(row, text='重新加载写操作配置', command=self.reload)
         self.reload_button.pack(side='left', padx=(8, 0))
         self.description = ttk.Label(body, wraplength=950)
         self.description.pack(anchor='w', pady=8)
         self.form = ttk.Frame(body)
         self.form.pack(fill='x')
-        ttk.Label(body, text='配置的更新语句（值通过参数绑定）：').pack(anchor='w', pady=(8, 4))
+        ttk.Label(body, text='配置的写操作语句（值通过参数绑定）：').pack(anchor='w', pady=(8, 4))
         self.sql_text = tk.Text(body, height=3, wrap='word', state='disabled')
         self.sql_text.pack(fill='x')
         controls = ttk.Frame(body)
@@ -52,6 +53,8 @@ class UpdateWindow(tk.Toplevel):
         self.preview_button.pack(side='left')
         self.submit_button = ttk.Button(controls, style='Danger.TButton', text='2. 确认并提交', command=self.submit, state='disabled')
         self.submit_button.pack(side='left', padx=10)
+        self.reconcile_button = ttk.Button(controls, text='已查询核实，允许重新操作', command=self.reconcile, state='disabled')
+        self.reconcile_button.pack(side='left')
         self.status = ttk.Label(body, text='请先配置更新操作', wraplength=950)
         self.status.pack(anchor='w', pady=(0, 6))
         self.progress = ttk.Progressbar(body, mode='indeterminate')
@@ -121,6 +124,9 @@ class UpdateWindow(tk.Toplevel):
         self.sql_text.delete('1.0', 'end')
         self.sql_text.insert('1.0', operation['sql'])
         self.sql_text.configure(state='disabled')
+        deleting = is_delete(operation)
+        self.preview_button.configure(text='1. 预览删除' if deleting else '1. 预览更新')
+        self.submit_button.configure(text='2. 确认删除' if deleting else '2. 确认并提交')
         condition_params = {p for _, _, p in operation['compiled']['conditions']}
         for index, spec in enumerate(operation['params']):
             row, col = divmod(index, 2)
@@ -161,8 +167,9 @@ class UpdateWindow(tk.Toplevel):
             widget.configure(state='disabled' if busy else 'normal')
         self.refresh_inputs()
         self.choice.configure(state='disabled' if busy else 'readonly')
-        self.preview_button.configure(state='disabled' if busy or not self.operations else 'normal')
+        self.preview_button.configure(state='disabled' if busy or self.uncertain or not self.operations else 'normal')
         self.submit_button.configure(state='disabled' if busy or self.preview is None or not self.preview.rows else 'normal')
+        self.reconcile_button.configure(state='normal' if self.uncertain and not busy else 'disabled')
         if busy:
             self.progress.start(12)
         else:
@@ -185,7 +192,7 @@ class UpdateWindow(tk.Toplevel):
         threading.Thread(target=worker, daemon=True).start()
 
     def start_preview(self):
-        if self.busy or not self.operations:
+        if self.busy or self.uncertain or not self.operations:
             return
         self.invalidate()
         operation = deepcopy(self.operations[self.choice.current()])
@@ -205,7 +212,9 @@ class UpdateWindow(tk.Toplevel):
             return
         snapshot = self.preview
         target = f"{self.config_snapshot['host']} / {self.config_snapshot['database']}"
-        if not messagebox.askyesno('确认修改数据库', f"目标：{target}\n操作：{snapshot.operation['name']}\n匹配记录：{len(snapshot.rows)} 行\n\n确认将预览中的字段更新为计划值？", parent=self):
+        deleting = is_delete(snapshot.operation)
+        action = '永久删除整条记录（不是清空音频字段），无法通过本工具撤销' if deleting else '将预览中的字段更新为计划值'
+        if not messagebox.askyesno('确认删除数据库记录' if deleting else '确认修改数据库', f"目标：{target}\n操作：{snapshot.operation['name']}\n匹配记录：{len(snapshot.rows)} 行\n\n确认{action}？", parent=self):
             return
         self.preview = None  # Single-use preview: prevents accidental resubmission.
         self.launch('apply', lambda: apply_update(snapshot))
@@ -215,6 +224,7 @@ class UpdateWindow(tk.Toplevel):
 
     def recover_result(self, exc):
         self.preview = None
+        self.uncertain = True
         self.set_busy(False)
         self.status.configure(text='更新结果显示失败；提交可能已经成功，请先查询核实，不要直接再次提交。')
         messagebox.showerror('更新结果待核实', error_message(exc, self.logger), parent=self)
@@ -230,21 +240,32 @@ class UpdateWindow(tk.Toplevel):
             compiled = data.operation['compiled']
             for row in data.rows:
                 key = ', '.join(f'{k}={row[data.columns.index(k)]}' for k in data.metadata[2])
-                for column, param in compiled['changes']:
+                for column, param in preview_fields(data):
                     before = row[data.columns.index(column)]
-                    self.table.insert('', 'end', values=(key, column, display_update_value(before), display_update_value(data.params[param])))
+                    self.table.insert('', 'end', values=(key, column, display_update_value(before), '删除整条记录' if param is None else display_update_value(data.params[param])))
             self.status.configure(text=f'已预览 {len(data.rows)} 条记录，尚未修改数据库。' if data.rows else '没有匹配记录，不可提交。')
         elif state == 'ok':
             matched, changed = data
             self.table.delete(*self.table.get_children())
-            self.status.configure(text=f'提交成功：匹配 {matched} 行，实际修改 {changed} 行。')
+            self.status.configure(text=f'提交成功：匹配 {matched} 行，实际影响 {changed} 行。')
             self.logger.info('event=update_committed matched=%d changed=%d', matched, changed)
-            messagebox.showinfo('更新成功', f'事务已提交。匹配 {matched} 行，实际修改 {changed} 行。', parent=self)
+            messagebox.showinfo('操作成功', f'事务已提交。匹配 {matched} 行，实际影响 {changed} 行。', parent=self)
         else:
             self.preview = None
+            if state == 'uncertain':
+                self.uncertain = True
             self.status.configure(text='提交结果无法确认，请查询核实，勿重复提交。' if state == 'uncertain' else '本次操作未完成；旧预览已失效，请处理错误后重新预览。')
             messagebox.showerror('提交结果待核实' if state == 'uncertain' else '更新操作失败', data, parent=self)
         self.set_busy(False)
+
+    def reconcile(self):
+        if self.busy or not self.uncertain:
+            return
+        if messagebox.askyesno('确认已核实数据库', '请先通过查询或数据库审计核实之前的提交是否已执行。确认已核实并允许重新预览？', parent=self):
+            self.uncertain = False
+            self.preview = None
+            self.set_busy(False)
+            self.status.configure(text='已解除限制，请重新预览当前记录。')
 
     def close(self):
         if self.busy:

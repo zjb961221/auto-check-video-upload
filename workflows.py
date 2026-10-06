@@ -31,7 +31,7 @@ def _load_workflows(path):
         raise WorkflowError('workflows 必须是非空数组')
     catalogues, ids = {}, set()
     loaders = {'query': (load_queries, 'queries.json'), 'update': (load_updates, 'updates.json'),
-               'api': (load_api_requests, 'api_requests.json')}
+               'delete': (load_updates, 'updates.json'), 'api': (load_api_requests, 'api_requests.json')}
     for flow in flows:
         if not isinstance(flow, dict):
             raise WorkflowError('每个流程必须是对象')
@@ -61,8 +61,8 @@ def _load_workflows(path):
             if not isinstance(step.get('title'), str) or not step['title'].strip():
                 raise WorkflowError(context + '缺少 title')
             kind = step.get('type')
-            if kind not in ('note', 'query', 'update', 'api'):
-                raise WorkflowError(context + '的 type 仅支持 note/query/update/api')
+            if kind not in ('note', 'query', 'update', 'delete', 'api'):
+                raise WorkflowError(context + '的 type 仅支持 note/query/update/delete/api')
             if not isinstance(step.get('instructions', ''), str) or type(step.get('optional', False)) is not bool:
                 raise WorkflowError(context + '的说明或 optional 格式错误')
             checks = step.get('checklist', [])
@@ -91,6 +91,8 @@ def _load_workflows(path):
             if step['ref'] not in catalogues[kind]:
                 raise WorkflowError(context + f'引用不存在：{step["ref"]}')
             step['operation'] = deepcopy(catalogues[kind][step['ref']])
+            if kind in ('update', 'delete') and step['operation']['compiled'].get('kind', 'update') != kind:
+                raise WorkflowError(context + '的步骤类型与 SQL 不一致：DELETE 使用 type: delete，UPDATE 使用 type: update')
             if set(defaults) - {p['name'] for p in step['operation'].get('params', [])}:
                 raise WorkflowError(context + '的 defaults 包含未定义参数')
             if kind == 'query':
