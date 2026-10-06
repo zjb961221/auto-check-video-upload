@@ -39,7 +39,7 @@ class ChoiceTests(unittest.TestCase):
     def test_workflow_default_must_be_an_option_value(self):
         with tempfile.TemporaryDirectory() as folder:
             folder=Path(folder)
-            (folder/'queries.json').write_text((ROOT/'queries.json').read_text(),encoding='utf-8')
+            (folder/'queries.json').write_text((ROOT/'queries.json').read_text(encoding='utf-8'),encoding='utf-8')
             flow={'version':1,'workflows':[{'id':'f','name':'f','steps':[{'id':'q','title':'q','type':'query','ref':'按煤矿和录像机筛选通道（下拉示例）','defaults':{'recorder':'99'}}]}]}
             (folder/'workflows.json').write_text(json.dumps(flow))
             with self.assertRaisesRegex(ValueError,'defaults'):
