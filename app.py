@@ -29,6 +29,7 @@ class App(tk.Tk):
         size_window(self, 1280, 900)
         self.design.header(self)
         self.logger = configure_logging(SETTINGS.parent)
+        self.notice_ids = []
         self.inputs = []
         self.parameter_inputs = []
         self.result_context = None
@@ -130,7 +131,7 @@ class App(tk.Tk):
         self.queries = []
         self.reload_queries(initial=True)
         if settings_warning:
-            self.after(150, lambda: messagebox.showwarning('连接配置', settings_warning))
+            self.notice_ids.append(self.after(150, lambda: messagebox.showwarning('连接配置', settings_warning)))
         from workflow_ui import WorkflowPanel
         self.workflow = WorkflowPanel(self.workflow_tab, self, ROOT, SETTINGS)
         self.workflow.pack(fill='both', expand=True)
@@ -164,7 +165,7 @@ class App(tk.Tk):
                 self.status.configure(text='查询配置无效，请修复后重新加载')
             message = configuration_error(ROOT / 'queries.json', exc)
             if initial:
-                self.after(100, lambda: messagebox.showerror('查询配置错误', message))
+                self.notice_ids.append(self.after(100, lambda: messagebox.showerror('查询配置错误', message)))
             else:
                 messagebox.showerror('加载失败，保留原查询配置', message)
             return
@@ -353,6 +354,12 @@ class App(tk.Tk):
 
 
     def destroy(self):
+        for callback in self.notice_ids:
+            try:
+                self.after_cancel(callback)
+            except tk.TclError:
+                pass
+        self.notice_ids.clear()
         # Cancel callbacks before Tk deletes their Tcl commands.
         for name in ('poll_id', 'scroll_id'):
             callback = getattr(self, name, None)
