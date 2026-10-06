@@ -1,3 +1,5 @@
+> v0.5.0 新增默认“客户流程向导”：按步骤配置说明、查询、更新和 API。配置方法见 [WORKFLOWS.md](WORKFLOWS.md)。原独立操作移到“高级工具（实施人员）”。升级请保留现场 SQL/API 配置，并添加 workflows.json；示例 ref 名称须与现场操作名称一致。
+
 # 视频上传检查 · Windows 数据库固定查询工具
 
 中文 Windows 桌面应用，使用 Python 3.12、Tkinter 和 PyMySQL。客户无需填写 SQL，可选择预配置查询并导出结果。

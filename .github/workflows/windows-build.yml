@@ -22,6 +22,9 @@ jobs:
           name: VideoUploadCheck-Windows-x64
           path: |
             dist/VideoUploadCheck.exe
+            dist/workflows.json
+            dist/workflows.example.json
+            dist/WORKFLOWS.md
             dist/queries.json
             dist/api_requests.json
             dist/updates.json

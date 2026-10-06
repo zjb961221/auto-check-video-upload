@@ -8,6 +8,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
 & .\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed --name VideoUploadCheck app.py
 if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+Copy-Item workflows.json dist\workflows.json -Force
+Copy-Item workflows.example.json dist\workflows.example.json -Force
+Copy-Item WORKFLOWS.md dist\WORKFLOWS.md -Force
 Copy-Item queries.json dist\queries.json -Force
 Copy-Item api_requests.json dist\api_requests.json -Force
 Copy-Item updates.json dist\updates.json -Force

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "workflows": [
+    {
+      "id": "custom_process",
+      "name": "自定义客户办理流程（配置示例）",
+      "description": "请先把每个 ref 替换成自己配置文件里的操作名称，再复制到 workflows.json。步骤可自由排序和重复引用操作。",
+      "steps": [
+        {"id": "prepare", "title": "准备工作", "type": "note", "instructions": "在这里填写客户需要阅读的操作说明。支持换行。", "checklist": ["已准备账号和网络", "已核对操作目标"]},
+        {"id": "call_api", "title": "调用指定接口", "type": "api", "ref": "替换为 api_requests.json 中的 name", "instructions": "填写调用前后要核对的内容。", "success": {"path": "code", "equals": 200}},
+        {"id": "read_data", "title": "查询数据库记录", "type": "query", "ref": "替换为 queries.json 中的 name", "instructions": "执行并核对查询结果。"},
+        {"id": "modify", "title": "修改指定记录", "type": "update", "ref": "替换为 updates.json 中的 name", "instructions": "先核对参数和预览，再确认提交。这里引用的 SQL 由你自己编写。"},
+        {"id": "verify", "title": "再次查询核实修改", "type": "query", "ref": "替换为 queries.json 中的 name", "instructions": "确认最终数据符合预期。"},
+        {"id": "handover", "title": "补充记录", "type": "note", "instructions": "按现场要求记录办理结果。", "optional": true}
+      ]
+    }
+  ]
+}

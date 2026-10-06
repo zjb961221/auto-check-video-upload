@@ -40,7 +40,13 @@ class App(tk.Tk):
         self.columns, self.rows = [], []
         self.vars = {}
         self.parameters = {}
-        outer = ttk.Frame(self, padding=20)
+        self.navigation = ttk.Notebook(self)
+        self.navigation.pack(fill='both', expand=True)
+        self.workflow_tab = ttk.Frame(self.navigation)
+        self.advanced_tab = ttk.Frame(self.navigation)
+        self.navigation.add(self.workflow_tab, text='客户流程向导')
+        self.navigation.add(self.advanced_tab, text='高级工具（实施人员）')
+        outer = ttk.Frame(self.advanced_tab, padding=20)
         outer.pack(fill='both', expand=True)
         ttk.Label(outer, text='数据库固定查询', font=('Microsoft YaHei UI', 20, 'bold')).pack(anchor='w')
         ttk.Label(outer, text='连接 MySQL → 选择检查项 → 执行查询 → 导出结果').pack(anchor='w', pady=(4, 14))
@@ -124,6 +130,10 @@ class App(tk.Tk):
         self.reload_queries(initial=True)
         if settings_warning:
             self.after(150, lambda: messagebox.showwarning('连接配置', settings_warning))
+        from workflow_ui import WorkflowPanel
+        self.workflow = WorkflowPanel(self.workflow_tab, self, ROOT, SETTINGS)
+        self.workflow.pack(fill='both', expand=True)
+        self.navigation.select(self.workflow_tab)
         self.protocol('WM_DELETE_WINDOW', self.close_app)
         self.after(100, self.poll)
 
@@ -188,6 +198,7 @@ class App(tk.Tk):
 
     def set_busy(self, value):
         self.busy = value
+        self.navigation.tab(self.workflow_tab, state='disabled' if value else 'normal')
         for widget in self.inputs + self.parameter_inputs:
             widget.configure(state='disabled' if value else 'normal')
         self.test.configure(state='disabled' if value else 'normal')
@@ -308,6 +319,9 @@ class App(tk.Tk):
         self.api_window = ApiWindow(self, ROOT / 'api_requests.json', SETTINGS.parent / 'api_profiles.json', self.logger)
 
     def close_app(self):
+        if self.workflow.busy:
+            messagebox.showinfo('流程进行中', '请等待当前操作返回后再关闭，避免无法确认执行结果。')
+            return
         if self.api_window is not None and self.api_window.winfo_exists():
             self.api_window.lift()
             return
@@ -316,6 +330,8 @@ class App(tk.Tk):
             return
         if self.busy:
             messagebox.showinfo('操作进行中', '请等待本次操作完成后关闭；读取超时后会自动返回。')
+            return
+        if self.workflow.run and (self.workflow.drafts or self.workflow.results) and not messagebox.askyesno('关闭工具', '流程进度和本次输入不会保存，已执行的修改不会撤销。确认关闭？'):
             return
         self.destroy()
 
