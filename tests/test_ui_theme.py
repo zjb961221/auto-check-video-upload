@@ -52,6 +52,8 @@ class ResponsiveWindowTests(unittest.TestCase):
                     self.assertEqual(panel.output.cget('background'),window.design.colors['panel'])
                     self.assertEqual(window.vars['host'].get(),'unchanged-host')
                 window.design.set_zoom(100)
+                # CI's virtual desktop is 1024px wide; explicitly allow the wide-layout fixture.
+                window.maxsize(4000,2400)
                 window.geometry('1280x850+0+0');window.update()
                 self.assertTrue(panel.sidebar.winfo_ismapped())
                 self.assertFalse(panel.step_picker.winfo_ismapped())

@@ -83,6 +83,7 @@ class WorkflowPanel(ttk.Frame):
         self.status.grid(row=2,column=0,sticky='ew',pady=8)
         self.progress = ttk.Progressbar(right, mode='indeterminate')
         self.progress.grid(row=3,column=0,sticky='ew')
+        self.progress.grid_remove()
         nav = ttk.Frame(right)
         nav.grid(row=4,column=0,sticky='ew',pady=(10,0))
         self.previous = ttk.Button(nav, text='上一步', command=lambda: self.navigate(-1))
@@ -478,9 +479,11 @@ class WorkflowPanel(ttk.Frame):
         self.reload_button.configure(state='disabled' if busy else 'normal')
         self.app.navigation.tab(self.app.advanced_tab, state='disabled' if busy else 'normal')
         if busy:
+            self.progress.grid()
             self.progress.start(12)
         else:
             self.progress.stop()
+            self.progress.grid_remove()
             if hasattr(self, 'export_button') and self.export_button.winfo_exists():
                 self.export_button.configure(state='normal' if self.run.step['type'] == 'query' and 'rows' in self.results.get(self.run.index, {}) else 'disabled')
         self.refresh_nav()

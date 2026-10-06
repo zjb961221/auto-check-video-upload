@@ -86,6 +86,17 @@ class DesignSystem:
         root.bind('<Control-0>', lambda e: self.set_zoom(100))
         root.bind('<F11>', self.toggle_fullscreen)
         root.bind('<Escape>', self.exit_fullscreen)
+        root.bind_all('<MouseWheel>', self.wheel, add='+')
+
+    def wheel(self, event):
+        widget = self.root.winfo_containing(event.x_root, event.y_root)
+        if isinstance(widget, (tk.Text, tk.Listbox, ttk.Treeview)):
+            return  # Preserve native result/editor scrolling.
+        while widget is not None:
+            if isinstance(widget, tk.Canvas):
+                widget.yview_scroll(-1 if event.delta > 0 else 1, 'units')
+                return 'break'
+            widget = getattr(widget, 'master', None)
 
     def apply(self):
         p = self.colors = PALETTES[self.theme]

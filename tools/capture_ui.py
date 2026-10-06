@@ -52,6 +52,7 @@ if __name__=='__main__' and os.name=='nt':
     with tempfile.TemporaryDirectory() as folder,patch('app.SETTINGS',Path(folder)/'connection.json'),patch('app.configure_logging',return_value=MagicMock()):
         root=app.App()
         try:
+            root.maxsize(4000,2400)
             root.geometry('1280x850+0+0');root.update();time.sleep(.2);root.update()
             Path('ui-previews').mkdir(exist_ok=True)
             for name,zoom,geometry in [('dark',100,'1280x850+0+0'),('compact',150,'900x650+0+0')]:
