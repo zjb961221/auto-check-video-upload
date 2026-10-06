@@ -1,3 +1,4 @@
+from ui_recovery import guarded_poll
 from ui_theme import ScrollFrame, size_window
 """A modal update workflow isolated from the read-only query window."""
 from copy import deepcopy
@@ -210,10 +211,18 @@ class UpdateWindow(tk.Toplevel):
         self.launch('apply', lambda: apply_update(snapshot))
 
     def poll(self):
+        guarded_poll(self, self.consume_result, self.recover_result)
+
+    def recover_result(self, exc):
+        self.preview = None
+        self.set_busy(False)
+        self.status.configure(text='更新结果显示失败；提交可能已经成功，请先查询核实，不要直接再次提交。')
+        messagebox.showerror('更新结果待核实', error_message(exc, self.logger), parent=self)
+
+    def consume_result(self):
         try:
             action, state, data = self.jobs.get_nowait()
         except queue.Empty:
-            self.poll_id = self.after(100, self.poll)
             return
         if state == 'ok' and action == 'preview':
             self.preview = data
@@ -236,7 +245,6 @@ class UpdateWindow(tk.Toplevel):
             self.status.configure(text='提交结果无法确认，请查询核实，勿重复提交。' if state == 'uncertain' else '本次操作未完成；旧预览已失效，请处理错误后重新预览。')
             messagebox.showerror('提交结果待核实' if state == 'uncertain' else '更新操作失败', data, parent=self)
         self.set_busy(False)
-        self.poll_id = self.after(100, self.poll)
 
     def close(self):
         if self.busy:

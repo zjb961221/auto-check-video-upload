@@ -37,6 +37,7 @@ class ResponsiveWindowTests(unittest.TestCase):
                 panel.note_changed();panel.next()
                 window.vars['host'].set('unchanged-host')
                 snapshot=panel.run.states[:]
+                window.geometry('820x540+0+0');window.update()
                 for zoom in ZOOMS:
                     window.design.set_zoom(zoom)
                     window.update()

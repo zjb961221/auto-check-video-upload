@@ -23,6 +23,24 @@ class ApiError(ValueError):
     pass
 
 
+def http_error_reason(status):
+    reasons = {
+        401: '登录凭据或 Token 无效，请核对账号密码并重新登录',
+        403: '当前账号没有接口权限，请联系服务管理员授权',
+        404: '接口路径不存在，请核对应用路径及现场版本',
+        405: '请求方法不被支持，请核对 GET/POST 等方法配置',
+        408: '服务端请求超时，请检查服务负载；修改操作需先核实结果',
+        429: '请求过于频繁，请等待服务端允许的间隔后再操作',
+        502: '网关未获得正常响应，请检查反向代理及后端服务',
+        503: '服务暂不可用，请检查服务运行状态和负载',
+        504: '网关等待后端超时；修改操作需先核实是否已执行',
+    }
+    reason = reasons.get(status, '服务端返回失败，请联系服务管理员检查日志' if status >= 500 else
+                         '响应发生重定向，请核对服务地址、登录状态和接口路径' if 300 <= status < 400 else
+                         '请求未被接受，请核对参数和服务端响应')
+    return f'HTTP {status}：{reason}。本步骤未完成。'
+
+
 class NoRedirect(request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None  # Never forward credentials or replay writes to a redirected URL.
@@ -232,8 +250,21 @@ class ApiClient:
                 return ApiResponse(response.code, dict(response.headers), data, time.monotonic()-started)
         except (socket.timeout, TimeoutError):
             raise ApiError('请求超时，结果可能尚未返回；修改类接口请先核实服务端状态，不要直接重发') from None
-        except error.URLError:
-            raise ApiError('连接失败，请检查服务地址、端口、网络与 HTTPS 证书') from None
+        except error.URLError as exc:
+            reason = exc.reason
+            if isinstance(reason, ssl.SSLCertVerificationError):
+                text = 'HTTPS 证书验证失败，请核对 CA 证书及服务地址与证书域名是否一致'
+            elif isinstance(reason, ssl.SSLError):
+                text = 'TLS 握手失败，请检查服务是否支持 HTTPS 及证书配置'
+            elif isinstance(reason, socket.gaierror):
+                text = '服务域名无法解析，请检查地址拼写、DNS 和现场网络'
+            elif isinstance(reason, ConnectionRefusedError):
+                text = '目标端口拒绝连接，请检查服务是否启动、端口和防火墙'
+            elif isinstance(reason, (socket.timeout, TimeoutError)):
+                text = '建立连接超时，请检查服务地址、网络和防火墙'
+            else:
+                text = '连接失败，请检查服务地址、端口、网络与 HTTPS 证书'
+            raise ApiError(text + '；修改类接口请先核实服务端结果') from None
         except (OSError, ValueError) as exc:
             if isinstance(exc, ApiError):
                 raise
@@ -248,7 +279,7 @@ class ApiClient:
         self.cookies.clear()
         response = self.send(spec, login=True)
         if not 200 <= response.status < 300:
-            raise ApiError(f'登录返回 HTTP {response.status}，请核对登录地址和鉴权信息')
+            raise ApiError(http_error_reason(response.status))
         parsed = None
         if spec.get('success_path') or spec.get('token_path'):
             try:

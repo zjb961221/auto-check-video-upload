@@ -21,7 +21,7 @@ class AppStateTests(unittest.TestCase):
         ui = self.task()
         ui.jobs.put(('ok', ('8.0', 'video'), 0.2))
         with patch('app.save_settings'):
-            app.App.poll(ui)
+            app.App.consume_result(ui)
         ui.table.delete.assert_not_called()
         self.assertEqual(ui.rows, [(1,)])
 
@@ -29,7 +29,7 @@ class AppStateTests(unittest.TestCase):
         ui = self.task()
         ui.jobs.put(('ok', ('8.0', 'video'), 0.2))
         with patch('app.save_settings', side_effect=OSError('disk')), patch('app.messagebox.showwarning') as warning:
-            app.App.poll(ui)
+            app.App.consume_result(ui)
         warning.assert_called_once()
         self.assertIn('连接正常', ui.status.configure.call_args.kwargs['text'])
         self.assertEqual(ui.rows, [(1,)])
@@ -38,7 +38,7 @@ class AppStateTests(unittest.TestCase):
         ui = self.task(False)
         ui.jobs.put(('error', 'connection failed', 0.2))
         with patch('app.messagebox.showerror'), patch('app.save_settings') as save:
-            app.App.poll(ui)
+            app.App.consume_result(ui)
         save.assert_not_called()
         ui.table.delete.assert_not_called()
         self.assertIn('上次结果', ui.status.configure.call_args.kwargs['text'])

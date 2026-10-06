@@ -93,11 +93,11 @@ class WorkflowTests(unittest.TestCase):
         preview = SimpleNamespace(rows=[('D1', 'old')], columns=('id', 'name'), metadata=(None, None, ('id',)),
                                   operation={'compiled': {'changes': [('name', 'value')]}}, params={'value': None})
         ui.jobs.put(('update', 'ok', preview))
-        WorkflowPanel.poll(ui)
+        WorkflowPanel.consume_result(ui)
         self.assertEqual(ui.run.states, ['pending'])
         self.assertIs(ui.preview, preview)
         ui.jobs.put(('apply', 'ok', (1, 1)))
-        WorkflowPanel.poll(ui)
+        WorkflowPanel.consume_result(ui)
         self.assertEqual(ui.run.states, ['ready'])
 
     def test_failed_mutating_api_is_blocked_until_verification(self):
@@ -106,7 +106,7 @@ class WorkflowTests(unittest.TestCase):
         ui.jobs = queue.Queue()
         ui.results = {}
         ui.jobs.put(('api', 'ok', (False, 'failed business check', '{}', True)))
-        WorkflowPanel.poll(ui)
+        WorkflowPanel.consume_result(ui)
         self.assertEqual(ui.run.states, ['uncertain'])
         with self.assertRaises(WorkflowError):
             ui.run.complete()

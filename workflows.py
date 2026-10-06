@@ -5,6 +5,8 @@ from pathlib import Path
 from queries import load_queries
 from updates import load_updates
 from api_config import load_api_requests
+from diagnostics import configuration_error
+from api_client import http_error_reason
 
 
 class WorkflowError(ValueError):
@@ -12,6 +14,13 @@ class WorkflowError(ValueError):
 
 
 def load_workflows(path):
+    try:
+        return _load_workflows(path)
+    except (OSError, ValueError, TypeError) as exc:
+        raise WorkflowError(configuration_error(path, exc)) from None
+
+
+def _load_workflows(path):
     path = Path(path)
     data = json.loads(path.read_text(encoding='utf-8-sig'))
     if not isinstance(data, dict) or data.get('version') != 1 or type(data.get('version')) is not int:
@@ -71,7 +80,10 @@ def load_workflows(path):
                 raise WorkflowError(context + '必须用 ref 引用操作名称')
             if kind not in catalogues:
                 loader, filename = loaders[kind]
-                operations = loader(path.parent / filename)
+                try:
+                    operations = loader(path.parent / filename)
+                except (OSError, ValueError, TypeError) as exc:
+                    raise WorkflowError(context + '：' + configuration_error(filename, exc)) from None
                 if len({x['name'] for x in operations}) != len(operations):
                     raise WorkflowError(filename + '存在重复名称，无法引用')
                 catalogues[kind] = {x['name']: x for x in operations}
@@ -127,7 +139,7 @@ class WorkflowRun:
     def go(self, target):
         if not 0 <= target < len(self.states):
             raise WorkflowError('步骤不存在')
-        if any(s not in ('done', 'skipped') for s in self.states[:target]):
+        if target > self.index and any(s not in ('done', 'skipped') for s in self.states[:target]):
             raise WorkflowError('请按顺序完成前面的步骤')
         self.index = target
 
@@ -135,7 +147,7 @@ class WorkflowRun:
 def api_outcome(response, rule=None):
     """Return success plus customer-safe status, without exposing raw values."""
     if not 200 <= response.status < 300:
-        return False, f'HTTP {response.status}，本步骤未完成，请检查响应。'
+        return False, http_error_reason(response.status)
     if rule:
         try:
             value = json.loads(response.text())

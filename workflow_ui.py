@@ -1,3 +1,4 @@
+from ui_recovery import guarded_poll
 """Customer-facing, sequential workflow panel; all I/O runs off the Tk thread."""
 from copy import deepcopy
 from datetime import datetime
@@ -15,7 +16,7 @@ from updates import preview_update, apply_update, bind_update_parameters, displa
 from api_client import ApiClient, ApiError
 from api_config import ProfileStore, bind_api_parameters
 from core import export_csv
-from diagnostics import error_message
+from diagnostics import error_message, configuration_error
 
 STATE_LABELS = {'pending': '待办理', 'ready': '待确认', 'done': '已完成',
                 'skipped': '已跳过', 'failed': '失败', 'uncertain': '结果待核实', 'stale': '需重新办理'}
@@ -120,6 +121,15 @@ class WorkflowPanel(ttk.Frame):
                 self.sidebar.pack(side='left',fill='y',padx=(0,12),before=self.right)
             if not self.flow_title.winfo_manager():
                 self.flow_title.pack(side='left',before=self.selector)
+        short = self.winfo_height() < 620*self.app.design.zoom/100
+        if short:
+            self.description.pack_forget()
+            self.footnote.pack_forget()
+        else:
+            if not self.description.winfo_manager():
+                self.description.pack(anchor='w',pady=(6,10),before=self.step_picker if self.step_picker.winfo_manager() else self.overall)
+            if not self.footnote.winfo_manager():
+                self.footnote.pack(anchor='w',pady=(10,0))
         self.description.configure(wraplength=max(240,width-24))
         self.footnote.configure(wraplength=max(240,width-24))
         self.heading.configure(wraplength=max(240,self.right.winfo_width()-24))
@@ -159,9 +169,12 @@ class WorkflowPanel(ttk.Frame):
         try:
             flows = load_workflows(self.root / 'workflows.json')
         except (OSError, ValueError, TypeError) as exc:
-            self.status.configure(text='流程配置加载失败；已有流程保持不变。请检查 workflows.json 及其引用。')
+            reason = str(exc) if isinstance(exc, WorkflowError) else configuration_error(self.root / 'workflows.json', exc)
+            self.status.configure(text=reason)
+            if self.run is None:
+                self.heading.configure(text='流程配置需要修正')
             if not initial:
-                self.warn(str(exc) if isinstance(exc, WorkflowError) else '无法读取流程或操作配置，请检查 JSON 文件和引用名称。')
+                self.warn(reason)
             self.refresh_nav()
             return
         if not initial and not self.may_reset():
@@ -489,6 +502,7 @@ class WorkflowPanel(ttk.Frame):
         self.refresh_nav()
 
     def launch(self, action, function, write=False):
+        self.pending_action = action
         self.snapshot()
         if self.run.step['type'] in ('query', 'update'):
             self.target_label = self.app.vars['host'].get() + ' / ' + self.app.vars['database'].get()
@@ -588,11 +602,23 @@ class WorkflowPanel(ttk.Frame):
         self.output.configure(state='disabled')
 
     def poll(self):
+        guarded_poll(self, self.consume_result, self.recover_result)
+
+    def recover_result(self, exc):
+        self.preview = None
+        action = getattr(self, 'pending_action', '')
+        if self.run:
+            self.run.states[self.run.index] = 'uncertain' if action in ('apply', 'api') else 'failed'
+        self.set_busy(False)
+        detail = error_message(exc, self.app.logger)
+        self.status.configure(text='结果显示发生异常，已恢复界面。更新或接口可能已经执行，请先核实服务端结果。\n' + detail)
+
+    def consume_result(self):
         try:
             action, state, data = self.jobs.get_nowait()
         except queue.Empty:
-            self.poll_id = self.after(100, self.poll)
             return
+        self.pending_action = action
         index = self.run.index
         stamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ' · ' + str(getattr(self, 'target_label', ''))
         if state != 'ok':
@@ -643,7 +669,6 @@ class WorkflowPanel(ttk.Frame):
         self.set_busy(False)
         self.scroll_id = self.after_idle(lambda: self.canvas.yview_moveto(1))
         self.app.logger.info('event=workflow_operation action=%s state=%s', action, self.run.states[index])
-        self.poll_id = self.after(100, self.poll)
 
     def export(self):
         result = self.results.get(self.run.index, {})

@@ -3,7 +3,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from uuid import uuid4
 
-VERSION = '0.6.0'
+VERSION = '0.6.1'
 MESSAGES = {
     1062: '更新值违反唯一约束，事务未提交，请核对数据。',
     1205: '等待记录锁超时，请稍后重新预览。',
@@ -46,3 +46,23 @@ def error_message(exc, logger):
     logger.error('event=operation_failed ref=%s type=%s code=%s', reference, type(exc).__name__, code)
     text = MESSAGES.get(code, '操作失败，请检查网络、证书、数据库版本及查询配置。')
     return f'{text}\n错误代码：{code or "无"} · 诊断编号：{reference}'
+
+
+def configuration_error(path, exc):
+    """Actionable file errors, without excerpts that could contain credentials."""
+    import json
+    from pathlib import Path
+    name = Path(path).name
+    if isinstance(exc, FileNotFoundError):
+        reason = '文件不存在，请将该配置文件放在 EXE 同目录'
+    elif isinstance(exc, PermissionError):
+        reason = '没有读取权限，请检查文件权限或移到可读目录'
+    elif isinstance(exc, json.JSONDecodeError):
+        reason = f'JSON 格式错误：第 {exc.lineno} 行、第 {exc.colno} 列；请检查逗号、引号和括号'
+    elif isinstance(exc, UnicodeError):
+        reason = '文件编码无法读取，请另存为 UTF-8'
+    elif isinstance(exc, (ValueError, TypeError)):
+        reason = str(exc) if isinstance(exc, ValueError) else '字段类型不正确，请核对配置说明'
+    else:
+        reason = '文件无法读取，请检查文件状态和权限'
+    return f'{name}：{reason}。修正后点击重新加载。'

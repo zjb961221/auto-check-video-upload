@@ -1,3 +1,4 @@
+from ui_recovery import guarded_poll
 from ui_theme import ScrollFrame, size_window
 """Universal API workbench, independent of database connectivity."""
 from copy import deepcopy
@@ -10,7 +11,8 @@ from api_drafts import Drafts
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from api_client import ApiClient, ApiError, validate_profile
+from diagnostics import error_message
+from api_client import ApiClient, ApiError, validate_profile, http_error_reason
 from api_config import ProfileStore, load_api_requests, bind_api_parameters
 
 AUTH_LABELS = {'无鉴权':'none', 'Bearer Token':'bearer', 'API Key / 自定义 Header':'api_header',
@@ -364,17 +366,24 @@ class ApiWindow(tk.Toplevel):
         self.status.configure(text='已清除本次登录会话，下次调用需要重新登录。')
 
     def poll(self):
+        guarded_poll(self, self.consume_result, self.recover_result)
+
+    def recover_result(self, exc):
+        self.set_busy(False)
+        self.status.configure(text='响应显示失败；修改接口可能已执行，请先核实服务端，勿直接重发。')
+        messagebox.showerror('响应显示失败', error_message(exc, self.logger), parent=self)
+
+    def consume_result(self):
         try:
             state,action,text,response,name,remember,profile=self.jobs.get_nowait()
         except queue.Empty:
-            self.poll_id = self.after(100,self.poll)
             return
         self.set_busy(False)
         self.show(text)
         if state=='error':
             self.status.configure(text='请求未完整完成；修改类接口请先核实服务端结果。')
         else:
-            self.status.configure(text='登录成功' if action=='login' else f'HTTP {response.status} · {response.elapsed:.2f} 秒 · 请检查响应中的业务状态')
+            self.status.configure(text='登录成功' if action=='login' else f'HTTP {response.status} · {response.elapsed:.2f} 秒 · 请检查响应中的业务状态' if 200 <= response.status < 300 else http_error_reason(response.status))
             self.logger.info('event=api_response status=%s',response.status if response else 'login')
             if action=='login' or 200<=response.status<300:
                 try:
@@ -382,7 +391,6 @@ class ApiWindow(tk.Toplevel):
                     self.refresh_profiles()
                 except (OSError,ValueError,TypeError):
                     self.status.configure(text=self.status.cget('text')+' · 连接信息未能保存')
-        self.poll_id = self.after(100,self.poll)
 
     def close(self):
         if self.busy:

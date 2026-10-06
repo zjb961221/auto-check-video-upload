@@ -1,3 +1,4 @@
+from ui_recovery import guarded_poll
 import os
 from pathlib import Path
 import queue
@@ -11,7 +12,7 @@ from core import load_queries, run_query, export_csv
 from settings import load_settings, save_settings
 from queries import bind_parameters
 from database import validate_connection, test_connection
-from diagnostics import VERSION, configure_logging, error_message
+from diagnostics import VERSION, configure_logging, error_message, configuration_error
 from ui_theme import DesignSystem, ScrollFrame, size_window, enable_dpi_awareness
 
 ROOT = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent
@@ -139,6 +140,11 @@ class App(tk.Tk):
         self.protocol('WM_DELETE_WINDOW', self.close_app)
         self.poll_id = self.after(100, self.poll)
 
+    def report_callback_exception(self, exc_type, exc, traceback):
+        # Python tracebacks can contain parameters and credentials. Log type/ref only.
+        detail = error_message(exc, self.logger)
+        messagebox.showerror('界面操作异常', '本次界面操作没有完成。请记录诊断编号；若涉及更新或接口，先核实服务端结果。\n' + detail, parent=self)
+
     def choose_ca(self):
         path = filedialog.askopenfilename(title='选择 CA 证书', filetypes=[('证书文件', '*.pem *.crt *.cer'), ('所有文件', '*.*')])
         if path:
@@ -155,7 +161,7 @@ class App(tk.Tk):
             if not self.queries:
                 self.execute.configure(state='disabled')
                 self.status.configure(text='查询配置无效，请修复后重新加载')
-            message = str(exc)
+            message = configuration_error(ROOT / 'queries.json', exc)
             if initial:
                 self.after(100, lambda: messagebox.showerror('查询配置错误', message))
             else:
@@ -238,6 +244,15 @@ class App(tk.Tk):
         threading.Thread(target=worker, daemon=True).start()
 
     def poll(self):
+        guarded_poll(self, self.consume_result, self.recover_result)
+
+    def recover_result(self, exc):
+        self.active_task = None
+        self.set_busy(False)
+        self.status.configure(text='结果显示失败，界面已恢复；原查询结果仅供参考。')
+        messagebox.showerror('结果显示失败', error_message(exc, self.logger))
+
+    def consume_result(self):
         try:
             state, data, seconds = self.jobs.get_nowait()
         except queue.Empty:
@@ -245,7 +260,6 @@ class App(tk.Tk):
                 seconds = time.monotonic() - self.active_task['started']
                 operation = '测试连接' if self.active_task['test'] else '查询'
                 self.status.configure(text=f'正在{operation} · 已等待 {seconds:.0f} 秒')
-            self.poll_id = self.after(100, self.poll)
             return
         task = self.active_task
         self.active_task = None
@@ -282,7 +296,6 @@ class App(tk.Tk):
                 self.logger.warning('event=settings_save_failed')
                 messagebox.showwarning('本次操作成功，连接信息未保存', '无法保存连接信息；查询结果仍可查看和导出。请检查本机文件权限或稍后点击“保存连接信息”。')
             self.logger.info('event=operation_success test=%s elapsed=%.2f', task['test'], seconds)
-        self.poll_id = self.after(100, self.poll)
 
     def export_result(self):
         if self.result_context is None or self.busy:
