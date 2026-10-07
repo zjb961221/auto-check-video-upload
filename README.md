@@ -1,3 +1,5 @@
+> v0.11.0：新增显式开启的按条件批量删除 delete_mode: matched；客户按名称筛选，程序预览全部匹配记录、校验数量与并发变化，再在事务内按实际主键删除。说明与示例见 [DELETES.md](DELETES.md)。
+
 > v0.10.0：API 新增按煤矿选择连接，地址、账号、密码和会话按煤矿隔离；同一接口模板可配置多个煤矿。示例见 api_mines.example.json，说明见 [API_MINES.md](API_MINES.md)。
 
 > v0.9.0：新增配置文件驱动的煤矿连接下拉框，选择煤矿自动回填数据库连接；支持每矿本机加密保存、重载配置和切换后旧预览失效。配置及 API 默认地址说明见 [DATABASE_PROFILES.md](DATABASE_PROFILES.md)。升级请保留现场配置。

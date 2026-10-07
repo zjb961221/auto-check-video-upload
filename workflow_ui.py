@@ -615,7 +615,7 @@ class WorkflowPanel(ttk.Frame):
         snapshot = self.preview
         config = snapshot.config
         deleting = is_delete(snapshot.operation)
-        warning = '永久删除预览中的整条记录，无法通过本工具撤销。' if deleting else '更新预览中的字段。'
+        warning = '永久删除预览中的全部整条记录，无法通过本工具撤销。' if deleting else '更新预览中的字段。'
         if not messagebox.askyesno('确认删除数据库记录' if deleting else '确认修改数据库', f'目标：{config["host"]} / {config["database"]}\n步骤：{self.run.step["title"]}\n匹配 {len(snapshot.rows)} 行。{warning}确认按预览提交？', parent=self):
             return
         self.preview = None
@@ -675,7 +675,8 @@ class WorkflowPanel(ttk.Frame):
             self.status.configure(text='查询成功，请核对结果后点击下一步。零行结果不代表业务检查通过。')
         elif action in ('update', 'delete'):
             self.preview = data
-            lines = [f'{stamp} · 预览 {len(data.rows)} 行，尚未修改数据库。']
+            mode_label = '按条件批量删除' if data.operation.get('delete_mode') == 'matched' else '删除' if is_delete(data.operation) else '更新'
+            lines = [f'{stamp} · {mode_label}预览 {len(data.rows)} 行，上限 {data.operation.get("max_rows", 1)} 行，尚未修改数据库。']
             for row in data.rows:
                 key = ', '.join(f'{k}={display_update_value(row[data.columns.index(k)])}' for k in data.metadata[2])
                 for column, param in preview_fields(data):

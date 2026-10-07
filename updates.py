@@ -88,6 +88,21 @@ def preview_fields(preview):
     return preview.operation['compiled']['changes']
 
 
+def validate_mutation_limits(operation):
+    mode = operation.get('delete_mode', 'unique')
+    if mode not in ('unique', 'matched'):
+        raise UpdateError('delete_mode 仅支持 unique（唯一键定位）或 matched（按条件批量预览删除）')
+    if not is_delete(operation) and 'delete_mode' in operation:
+        raise UpdateError('delete_mode 只能用于 DELETE 操作')
+    ceiling = 1000 if is_delete(operation) and mode == 'matched' else 100
+    limit = operation.get('max_rows', 1)
+    if type(limit) is not int or not 1 <= limit <= ceiling:
+        raise UpdateError(f'max_rows 必须为 1–{ceiling} 的整数，默认 1')
+    operation['max_rows'] = limit
+    if is_delete(operation):
+        operation['delete_mode'] = mode
+
+
 def load_updates(path):
     path = Path(path)
     if not path.exists():
@@ -101,10 +116,7 @@ def load_updates(path):
             raise UpdateError('更新操作名称不能为空或重复')
         seen.add(item['name'])
         item['compiled'] = parse_mutation(item.get('sql'))
-        limit = item.get('max_rows', 1)
-        if type(limit) is not int or not 1 <= limit <= 100:
-            raise UpdateError('max_rows 必须为 1–100 的整数，默认 1')
-        item['max_rows'] = limit
+        validate_mutation_limits(item)
         # Reuse catalogue validation without interpreting UPDATE as SELECT.
         validate_parameter_spec(item)
     return items
@@ -226,7 +238,7 @@ def inspect_table(cursor, operation):
         nonnullable = {r[0] for r in schema if r[2] == 'NO'}
         unique_keys = tuple(tuple(c for c, _ in parts) for _, parts in sorted(indexes.items())
                             if all(c in nonnullable and prefix is None for c, prefix in parts))
-        if not any(set(key) <= conditions for key in (keys,) + unique_keys):
+        if operation.get('delete_mode', 'unique') != 'matched' and not any(set(key) <= conditions for key in (keys,) + unique_keys):
             raise UpdateError('删除 WHERE 必须包含完整主键或非空唯一键的等值条件；名称或非唯一通道编码不能单独定位。联合唯一键须填写全部字段。')
         return identity, schema, keys, unique_keys
     return identity, schema, keys
@@ -248,6 +260,7 @@ def select_rows(cursor, operation, params, metadata, lock=False):
 def preview_update(config, operation, raw_params, connect=None, modes=None):
     operation = deepcopy(operation)
     operation['compiled'] = parse_mutation(operation['sql'])
+    validate_mutation_limits(operation)
     params = bind_update_parameters(operation, raw_params, modes)
     conn = connect_database(config, connect)
     try:

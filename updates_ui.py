@@ -119,7 +119,8 @@ class UpdateWindow(tk.Toplevel):
         self.parameters, self.inputs = {}, []
         self.modes, self.entries, self.mode_widgets = {}, {}, []
         operation = self.operations[self.choice.current()]
-        self.description.configure(text=f"{operation.get('description', '')}（最多 {operation['max_rows']} 行）")
+        mode_label = '按条件批量删除' if operation.get('delete_mode') == 'matched' else '唯一键删除' if is_delete(operation) else '更新'
+        self.description.configure(text=f"{operation.get('description', '')}（{mode_label}，最多 {operation['max_rows']} 行）")
         self.sql_text.configure(state='normal')
         self.sql_text.delete('1.0', 'end')
         self.sql_text.insert('1.0', operation['sql'])
@@ -213,7 +214,7 @@ class UpdateWindow(tk.Toplevel):
         snapshot = self.preview
         target = f"{self.config_snapshot['host']} / {self.config_snapshot['database']}"
         deleting = is_delete(snapshot.operation)
-        action = '永久删除整条记录（不是清空音频字段），无法通过本工具撤销' if deleting else '将预览中的字段更新为计划值'
+        action = '永久删除预览中的全部整条记录（不是清空音频字段），无法通过本工具撤销' if deleting else '将预览中的字段更新为计划值'
         if not messagebox.askyesno('确认删除数据库记录' if deleting else '确认修改数据库', f"目标：{target}\n操作：{snapshot.operation['name']}\n匹配记录：{len(snapshot.rows)} 行\n\n确认{action}？", parent=self):
             return
         self.preview = None  # Single-use preview: prevents accidental resubmission.

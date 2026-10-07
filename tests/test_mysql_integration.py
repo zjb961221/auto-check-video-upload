@@ -201,3 +201,45 @@ class MySQLUpdateIntegrationTests(unittest.TestCase):
         finally:
             with self.conn.cursor() as cur:
                 cur.execute('DROP TABLE delete_child')
+
+    def batch_delete_fixture(self):
+        from updates import parse_mutation,validate_parameter_spec
+        with self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE updates_fixture DROP INDEX name')
+            cur.execute("UPDATE updates_fixture SET name='AudioOut1'")
+        op=dict(name='批量删除',sql='DELETE FROM updates_fixture WHERE name=%(name)s',delete_mode='matched',max_rows=10,params=[dict(name='name',type='text',default='AudioOut1')])
+        op['compiled']=parse_mutation(op['sql']);validate_parameter_spec(op)
+        return op
+
+    def test_batch_delete_success_and_count_limit(self):
+        from updates import preview_update,apply_update,UpdateError
+        op=self.batch_delete_fixture();op['max_rows']=1
+        with self.assertRaises(UpdateError):preview_update(self.config,op,{'name':'AudioOut1'})
+        self.assertEqual(len(self.rows()),2)
+        op['max_rows']=10
+        snap=preview_update(self.config,op,{'name':'AudioOut1'})
+        self.assertEqual(len(self.rows()),2)
+        self.assertEqual(apply_update(snap),(2,2))
+        self.assertEqual(self.rows(),())
+
+    def test_batch_delete_added_match_prevents_writes(self):
+        from updates import preview_update,apply_update,UpdateError
+        op=self.batch_delete_fixture()
+        snap=preview_update(self.config,op,{'name':'AudioOut1'})
+        with self.conn.cursor() as cur:cur.execute("INSERT INTO updates_fixture VALUES(3,'AudioOut1')")
+        with self.assertRaises(UpdateError):apply_update(snap)
+        self.assertEqual(len(self.rows()),3)
+
+    def test_batch_delete_foreign_key_failure_rolls_back_first_delete(self):
+        import pymysql
+        from updates import preview_update,apply_update
+        op=self.batch_delete_fixture()
+        with self.conn.cursor() as cur:
+            cur.execute('CREATE TABLE batch_delete_child (id INT PRIMARY KEY,parent INT,FOREIGN KEY(parent) REFERENCES updates_fixture(id)) ENGINE=InnoDB')
+            cur.execute('INSERT INTO batch_delete_child VALUES(1,2)')
+        try:
+            snap=preview_update(self.config,op,{'name':'AudioOut1'})
+            with self.assertRaises(pymysql.IntegrityError):apply_update(snap)
+            self.assertEqual(self.rows(),((1,'AudioOut1'),(2,'AudioOut1')))
+        finally:
+            with self.conn.cursor() as cur:cur.execute('DROP TABLE batch_delete_child')

@@ -197,3 +197,58 @@ class DeleteWindowTests(unittest.TestCase):
                 self.assertEqual(panel.run.states,['ready'])
             finally:
                 ui.close();root.destroy()
+
+
+class BatchDeleteTests(unittest.TestCase):
+    def batch(self, limit=3):
+        op=operation('DELETE FROM samples WHERE name=%(name)s','AudioOut1')
+        op.update(delete_mode='matched',max_rows=limit)
+        return op
+
+    def snapshot(self):
+        factory,conn,cur=connection(((1,'AudioOut1'),(2,'AudioOut1')))
+        snap=preview_update(CONFIG,self.batch(),{'name':'AudioOut1'},factory)
+        conn.commit.assert_not_called()
+        return snap
+
+    def test_batch_preview_and_writes_use_only_previewed_keys(self):
+        snap=self.snapshot()
+        factory,conn,cur=connection(snap.rows)
+        self.assertEqual(apply_update(snap,factory),(2,2))
+        deletes=[c.args for c in cur.execute.call_args_list if c.args[0].startswith('DELETE ')]
+        self.assertEqual(deletes,[('DELETE FROM `samples` WHERE `id`=%s',(1,)),('DELETE FROM `samples` WHERE `id`=%s',(2,))])
+        conn.commit.assert_called_once()
+
+    def test_batch_limit_rejects_entire_preview(self):
+        factory,conn,_=connection(((1,'AudioOut1'),(2,'AudioOut1')))
+        with self.assertRaisesRegex(UpdateError,'超过上限'):
+            preview_update(CONFIG,self.batch(1),{'name':'AudioOut1'},factory)
+        conn.commit.assert_not_called()
+
+    def test_changed_or_added_matching_rows_block_all_deletes(self):
+        snap=self.snapshot()
+        for rows in [((1,'AudioOut1'),),((1,'AudioOut1'),(2,'AudioOut1'),(3,'AudioOut1'))]:
+            factory,conn,cur=connection(rows)
+            with self.assertRaises(UpdateError):apply_update(snap,factory)
+            conn.commit.assert_not_called()
+            self.assertFalse(any(c.args[0].startswith('DELETE ') for c in cur.execute.call_args_list))
+
+    def test_second_delete_failure_rolls_back_transaction(self):
+        snap=self.snapshot()
+        factory,conn,cur=connection(snap.rows)
+        def execute(sql,values=None):
+            if sql.startswith('DELETE ') and values==(2,):raise RuntimeError('fixture failure')
+        cur.execute.side_effect=execute
+        with self.assertRaises(RuntimeError):apply_update(snap,factory)
+        conn.rollback.assert_called_once();conn.commit.assert_not_called()
+
+    def test_batch_mode_validation_and_ceiling(self):
+        from updates import validate_mutation_limits
+        for mode,limit in [('matched',1001),('matched',True),('unsafe',3),('unique',101)]:
+            op=self.batch(limit);op['delete_mode']=mode
+            with self.assertRaises(UpdateError):validate_mutation_limits(op)
+        op=self.batch(1000);validate_mutation_limits(op)
+        with tempfile.TemporaryDirectory() as folder:
+            raw=dict(op);raw.pop('compiled')
+            path=Path(folder)/'updates.json';path.write_text(json.dumps([raw]))
+            self.assertEqual(load_updates(path)[0]['delete_mode'],'matched')
