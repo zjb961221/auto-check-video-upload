@@ -17,8 +17,14 @@ class ProfileError(ValueError):
 
 def load_profiles(path):
     path = Path(path)
+    from site_profiles import load_sites
+    try:sites, selected = load_sites(path.parent / 'site_profiles.json')
+    except (OSError,ValueError,TypeError) as exc:
+        from diagnostics import configuration_error
+        raise ProfileError(configuration_error('site_profiles.json',exc)) from None
+    central = [dict(s['database'], id=s['id'], name=s['name']) for s in sites if 'database' in s]
     try:
-        data = json.loads(path.read_text(encoding='utf-8-sig'))
+        data = dict(version=1, profiles=central, default_profile=selected if selected in {s['id'] for s in central} else '') if central else json.loads(path.read_text(encoding='utf-8-sig'))
     except FileNotFoundError:
         return [], ''
     except (OSError, ValueError):

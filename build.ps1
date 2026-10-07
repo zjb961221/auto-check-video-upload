@@ -27,3 +27,10 @@ Copy-Item DATABASE_PROFILES.md dist\DATABASE_PROFILES.md -Force
 Copy-Item api_mines.example.json dist\api_mines.example.json -Force
 Copy-Item API_MINES.md dist\API_MINES.md -Force
 Write-Host 'Done: distribute ClientOpsTool.exe together with all configuration files and documents from dist.'
+
+Copy-Item site_profiles.json dist\site_profiles.json -Force
+Copy-Item site_profiles.example.json dist\site_profiles.example.json -Force
+Copy-Item ops_settings.json dist\ops_settings.json -Force
+Copy-Item verification.example.json dist\verification.example.json -Force
+Copy-Item OPERATIONS.md dist\OPERATIONS.md -Force
+Copy-Item upgrade.ps1 dist\upgrade.ps1 -Force

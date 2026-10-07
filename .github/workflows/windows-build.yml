@@ -43,4 +43,10 @@ jobs:
             dist/API_MINES.md
             dist/PARAMETERS.md
             dist/README.md
+            dist/site_profiles.json
+            dist/site_profiles.example.json
+            dist/ops_settings.json
+            dist/verification.example.json
+            dist/OPERATIONS.md
+            dist/upgrade.ps1
           if-no-files-found: error

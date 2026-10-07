@@ -1,0 +1,21 @@
+[
+  {
+    "name": "WVP：刷新目录并核验完成（需核对版本）",
+    "profile_name": "WVP",
+    "site_service": "WVP",
+    "description": "触发后手动查询本次同步状态；请核对该版本字段和接口。",
+    "request": {
+      "method": "GET",
+      "path": "/api/device/query/devices/{{device_id}}/sync",
+      "body_type": "none",
+      "confirm": true
+    },
+    "params": [{"name":"device_id","label":"设备国标编码","type":"text","default":""}],
+    "verification": {
+      "request": {"method":"GET","path":"/api/device/query/sync_status","query":{"deviceId":"{{device_id}}"},"body_type":"none"},
+      "success": {"path":"data.syncIng","equals":false},
+      "conditions": [{"path":"data.errorMsg","equals":null}],
+      "correlate": {"data.time":"data.time"}
+    }
+  }
+]

@@ -5,7 +5,7 @@ from copy import deepcopy
 import queue
 import threading
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from diagnostics import error_message
 from updates import load_updates, preview_update, apply_update, UpdateError, CommitUncertain, bind_update_parameters, display_update_value, is_delete, preview_fields
 
@@ -53,6 +53,8 @@ class UpdateWindow(tk.Toplevel):
         self.preview_button.pack(side='left')
         self.submit_button = ttk.Button(controls, style='Danger.TButton', text='2. 确认并提交', command=self.submit, state='disabled')
         self.submit_button.pack(side='left', padx=10)
+        self.export_preview_button=ttk.Button(controls,text='导出预览清单',command=self.export_preview)
+        self.export_preview_button.pack(side='left',padx=8)
         self.reconcile_button = ttk.Button(controls, text='已查询核实，允许重新操作', command=self.reconcile, state='disabled')
         self.reconcile_button.pack(side='left')
         self.status = ttk.Label(body, text='请先配置更新操作', wraplength=950)
@@ -177,6 +179,7 @@ class UpdateWindow(tk.Toplevel):
             self.progress.stop()
 
     def launch(self, action, function):
+        if hasattr(self.master,'audit'):self.master.audit.record('preview' if action=='preview' else 'apply','started')
         self.set_busy(True)
         self.status.configure(text='正在读取预览…' if action == 'preview' else '正在核对并提交，请勿关闭程序或断开网络…')
         def worker():
@@ -208,14 +211,31 @@ class UpdateWindow(tk.Toplevel):
             return
         self.launch('preview', lambda: preview_update(self.config_snapshot, operation, values, modes=modes))
 
+    def export_preview(self):
+        if self.busy or not self.preview:
+            messagebox.showinfo('请先预览','先生成当前预览后才能导出。',parent=self);return
+        path=filedialog.asksaveasfilename(parent=self,defaultextension='.csv',initialfile='删除或更新预览清单.csv')
+        if path:
+            try:
+                from core import export_csv
+                export_csv(path,self.preview.columns,self.preview.rows)
+            except (OSError,ValueError):messagebox.showerror('预览未导出','写入失败，请检查路径权限；未生成备份，数据库未因此修改。',parent=self)
+            else:messagebox.showinfo('预览已导出','清单包含目标记录，不是完整数据库备份，也不提供自动撤销。',parent=self)
+
     def submit(self):
         if self.busy or self.preview is None or not self.preview.rows:
             return
         snapshot = self.preview
         target = f"{self.config_snapshot['host']} / {self.config_snapshot['database']}"
         deleting = is_delete(snapshot.operation)
+        from delete_review import delete_summary
+        target += '\n'+delete_summary(snapshot)
         action = '永久删除预览中的全部整条记录（不是清空音频字段），无法通过本工具撤销' if deleting else '将预览中的字段更新为计划值'
         if not messagebox.askyesno('确认删除数据库记录' if deleting else '确认修改数据库', f"目标：{target}\n操作：{snapshot.operation['name']}\n匹配记录：{len(snapshot.rows)} 行\n\n确认{action}？", parent=self):
+            return
+        from delete_review import confirm_large_delete
+        threshold = getattr(getattr(self, 'master', None), 'ops_options', {}).get('delete_confirm_threshold', 20)
+        if not confirm_large_delete(self,snapshot,threshold):
             return
         self.preview = None  # Single-use preview: prevents accidental resubmission.
         self.launch('apply', lambda: apply_update(snapshot))
@@ -257,6 +277,8 @@ class UpdateWindow(tk.Toplevel):
                 self.uncertain = True
             self.status.configure(text='提交结果无法确认，请查询核实，勿重复提交。' if state == 'uncertain' else '本次操作未完成；旧预览已失效，请处理错误后重新预览。')
             messagebox.showerror('提交结果待核实' if state == 'uncertain' else '更新操作失败', data, parent=self)
+        if hasattr(self.master,'audit'):
+            self.master.audit.record('preview' if action=='preview' else 'apply',state, len(data.rows) if state=='ok' and action=='preview' else data[1] if state=='ok' else None)
         self.set_busy(False)
 
     def reconcile(self):

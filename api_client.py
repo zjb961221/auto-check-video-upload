@@ -270,6 +270,13 @@ class ApiClient:
                 raise
             raise ApiError('请求未完整返回，请检查网络；修改类接口需先核实服务端结果') from None
 
+    def failure_detail(self, spec, response, stage='接口'):
+        request_info=self.request_display(self.prepare(spec, login=stage=='登录')).split('\n\n',1)[0]
+        # Details are UI only; logs/support exports never include this body.
+        text=self.display(response)
+        text=re.sub(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+','***',text)
+        return f'{stage}失败：{http_error_reason(response.status)}\n实际请求：{request_info}\n服务端响应（已脱敏，最多 4000 字符）：\n{text[:4000]}'
+
     def login(self):
         spec = self.profile.get('login', {})
         if not isinstance(spec, dict) or not spec.get('path'):
@@ -279,7 +286,7 @@ class ApiClient:
         self.cookies.clear()
         response = self.send(spec, login=True)
         if not 200 <= response.status < 300:
-            raise ApiError(http_error_reason(response.status))
+            raise ApiError(self.failure_detail(spec,response,'登录'))
         parsed = None
         if spec.get('success_path') or spec.get('token_path'):
             try:
@@ -288,7 +295,7 @@ class ApiClient:
                 raise ApiError('登录响应不是 JSON，请核对登录地址或返回格式') from None
         if spec.get('success_path') and json_path(parsed, spec['success_path']) != spec.get('success_value'):
             self.cookies.clear()
-            raise ApiError('登录业务状态不符合 success_value，请核对账号和登录配置')
+            raise ApiError('登录业务状态不符合 success_value，请核对账号和登录配置\n'+self.display(response)[:4000])
         if self.profile['auth_type'] == 'login_token':
             header = spec.get('token_header')
             token = next((v for k, v in response.headers.items() if k.lower() == header.lower()), '') if header else ''

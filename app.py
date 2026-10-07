@@ -29,6 +29,11 @@ class App(tk.Tk):
         size_window(self, 1280, 900)
         self.design.header(self)
         self.logger = configure_logging(SETTINGS.parent)
+        from operations import Audit, load_ops
+        self.audit=Audit(SETTINGS.parent)
+        try:self.ops_options=load_ops(ROOT/'ops_settings.json')
+        except (OSError,ValueError):self.ops_options=dict(customer_mode=True,delete_confirm_threshold=20)
+        self.customer_mode=self.ops_options['customer_mode']
         self.notice_ids = []
         self.inputs = []
         self.parameter_inputs = []
@@ -143,6 +148,8 @@ class App(tk.Tk):
         self.design.paint_widgets(self)
         self.design.decorate(self.execute, 'database')
         self.design.decorate(api_button, 'api')
+        from operations_ui import install_tools
+        install_tools(self,ROOT)
         self.protocol('WM_DELETE_WINDOW', self.close_app)
         self.poll_id = self.after(100, self.poll)
 
@@ -269,6 +276,7 @@ class App(tk.Tk):
                 self.status.configure(text=f'正在{operation} · 已等待 {seconds:.0f} 秒')
             return
         task = self.active_task
+        self.audit.record('connection' if task['test'] else 'query','ok' if state=='ok' else 'error',len(data[1]) if state=='ok' and not task['test'] else None)
         self.active_task = None
         self.set_busy(False)
         if state == 'error':

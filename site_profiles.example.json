@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "default_site": "",
+  "sites": [
+    {
+      "id": "limin",
+      "name": "利民煤矿",
+      "database": {
+        "host": "192.0.2.9", "port": 3306, "database": "wvp", "user": "client_ops", "password": ""
+      },
+      "services": {
+        "WVP": {
+          "base_url": "http://192.0.2.9:18082", "auth_type": "login_token", "key_name": "access-token", "username": "client_ops", "password": "",
+          "login": {"method":"GET","path":"/api/user/login","query":{"username":"{{username}}","password":"{{password_md5}}"},"body_type":"none","token_header":"access-token","token_path":"accessToken"}
+        },
+        "XXL-JOB": {
+          "base_url": "http://192.0.2.9:8080/xxl-job-admin", "auth_type":"login_cookie", "username":"client_ops", "password":"",
+          "login":{"method":"POST","path":"/login","body_type":"form","body":{"userName":"{{username}}","password":"{{password}}"},"success_path":"code","success_value":200}
+        }
+      }
+    }
+  ]
+}

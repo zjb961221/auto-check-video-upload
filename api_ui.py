@@ -35,6 +35,7 @@ class ApiWindow(tk.Toplevel):
         self.active_name = None
         self.mine_selections = {}
         self.busy = False
+        self.verification_context=None
         self.client = None
         self.client_key = None
         self.jobs = queue.Queue()
@@ -116,9 +117,9 @@ class ApiWindow(tk.Toplevel):
         self.output.configure(yscrollcommand=scroll.set)
         toolbar = ttk.Frame(body)
         toolbar.pack(fill='x', pady=(10,6))
-        for label, command in [('保存接口草稿（加密）',self.save_draft), ('预览请求',self.preview), ('发送接口',self.send), ('登录 / 获取会话',self.login), ('清除会话',self.clear_session)]:
+        for button_index,(label, command) in enumerate([('保存接口草稿（加密）',self.save_draft), ('预览请求',self.preview), ('发送接口',self.send), ('登录 / 获取会话',self.login), ('清除会话',self.clear_session), ('测试服务可达',self.reachability), ('核验任务结果',self.verify_task), ('恢复文件默认连接',self.reset_defaults)]):
             button = ttk.Button(toolbar, text=label, command=command)
-            button.pack(side='left', padx=(0,8))
+            button.grid(row=button_index//4,column=button_index%4,sticky='w',padx=(0,8),pady=4)
             self.controls.append(button)
         self.progress = ttk.Progressbar(body, mode='indeterminate')
         self.progress.pack(fill='x')
@@ -135,7 +136,8 @@ class ApiWindow(tk.Toplevel):
         widget.insert('1.0',json.dumps(value, ensure_ascii=False, indent=2))
 
     def reload(self):
-        if self.busy:
+        if self.busy or self.verification_context:
+            self.status.configure(text='请先核验待处理任务，再重新加载接口配置。')
             return
         try:
             presets = load_api_requests(self.catalogue_path)
@@ -166,9 +168,14 @@ class ApiWindow(tk.Toplevel):
         self.client, self.client_key = None, None
 
     def change_preset(self,event=None):
+        if self.verification_context:
+            if hasattr(self,'last_preset_index'):self.choice.current(self.last_preset_index)
+            self.status.configure(text='任务尚未核验，请先检查结果或核实后清除会话。')
+            return
         if not self.presets:
             return
         self.capture_draft()
+        self.last_preset_index=self.choice.current()
         preset = self.presets[self.choice.current()]
         self.vars['profile_name'].set(preset.get('profile_name','默认服务'))
         from api_connections import resolve_connection, DEFAULT
@@ -272,11 +279,19 @@ class ApiWindow(tk.Toplevel):
         return self.mine_storage_key if self.mine_selections.get(preset.get('name')) else self.vars['profile_name'].get()
 
     def select_mine(self, event=None):
+        if self.verification_context:
+            from api_connections import DEFAULT
+            preset=self.presets[self.choice.current()]
+            selected=self.mine_selections.get(preset['name'],'')
+            self.mine_choice.set(next((c['name'] for c in preset.get('connections',[]) if c['id']==selected),DEFAULT))
+            self.status.configure(text='任务尚未核验，请先核实原煤矿任务。')
+            return
         if self.busy or not self.presets:
             return
         preset=self.presets[self.choice.current()]
         self.mine_selections[preset['name']]=next((c['id'] for c in preset.get('connections',[]) if c['name']==self.mine_choice.get()),'')
         self.change_preset()
+        self.verification_context=None
         self.client, self.client_key = None, None
         self.output.configure(state='normal')
         self.output.delete('1.0','end')
@@ -357,6 +372,7 @@ class ApiWindow(tk.Toplevel):
     def run(self,action,client,function,secrets=()):
         name=self.connection_key()
         remember=self.remember.get()
+        if hasattr(self.master,'audit'):self.master.audit.record('login' if action=='login' else 'api','started')
         self.set_busy(True)
         self.status.configure(text='正在登录…' if action=='login' else '正在请求，请勿重复发送…')
         def worker():
@@ -380,9 +396,40 @@ class ApiWindow(tk.Toplevel):
             if req.method not in ('GET','HEAD','OPTIONS') or spec.get('confirm',False):
                 if not messagebox.askyesno('确认发送接口',f"目标：{client.profile['base_url']}\n方法：{req.method}\n\n接口可能修改数据或触发任务。确认发送？",parent=self):
                     return
+            if self.verification_context:
+                raise ApiError('已有待核验任务，请先检查结果，不要重复触发')
+            self.last_request_params=deepcopy(params)
             self.run('request',client,lambda:client.send(deepcopy(spec),deepcopy(params)),secrets)
         except (OSError,ValueError,TypeError,KeyError) as exc:
             messagebox.showerror('无法发送',str(exc) if isinstance(exc,ApiError) else '配置格式无效，请检查请求和鉴权字段。',parent=self)
+
+    def reachability(self):
+        if self.busy:return
+        try:
+            from urllib import request,parse
+            profile=self.profile();parts=parse.urlsplit(profile['base_url'])
+            # Credentials are not attached; HEAD to the configured base path only.
+            client=ApiClient(dict(profile,auth_type='none',password='',token=''))
+            self.run('reachability',client,lambda:client.send(dict(method='HEAD',path='/',body_type='none')))
+        except (OSError,ValueError,TypeError):self.status.configure(text='服务探测配置无效，请检查地址和证书。')
+
+    def verify_task(self):
+        context=self.verification_context
+        if self.busy or not context or context.get('blocked'):return
+        if self.profile()!=context['profile']:
+            self.status.configure(text='连接已变化，请人工核实原目标任务；不会向新目标查询旧任务。');return
+        rule=context['preset']['verification']
+        self.run('verify',context['client'],lambda:context['client'].send(rule['request'],context['params']))
+
+    def reset_defaults(self):
+        if self.busy or not self.presets:return
+        if not messagebox.askyesno('恢复文件默认连接','将覆盖当前服务字段并清除登录会话；不会删除其他煤矿保存信息。确认继续？',parent=self):return
+        from api_connections import resolve_connection
+        preset=self.presets[self.choice.current()]
+        selected=self.mine_selections.get(preset['name'],'')
+        profile,_,_=resolve_connection(preset,selected)
+        self.fill_profile(profile)
+        self.status.configure(text='已恢复文件默认值；核对后可保存覆盖该连接的旧本机值。')
 
     def login(self):
         if self.busy:
@@ -396,6 +443,9 @@ class ApiWindow(tk.Toplevel):
             messagebox.showerror('无法登录',str(exc) if isinstance(exc,ApiError) else '登录配置无效。',parent=self)
 
     def clear_session(self):
+        if self.verification_context:
+            if not messagebox.askyesno('任务结果待核实','请先核实服务端任务。确认已核实并清除当前会话与重复触发限制？',parent=self):return
+            self.verification_context=None
         self.client,self.client_key=None,None
         self.status.configure(text='已清除本次登录会话，下次调用需要重新登录。')
 
@@ -414,12 +464,31 @@ class ApiWindow(tk.Toplevel):
             return
         self.set_busy(False)
         self.show(text)
+        if hasattr(self.master,'audit'):
+            self.master.audit.record('login' if action=='login' else 'verify' if action=='verify' else 'api','failed' if response and not 200<=response.status<300 else state)
         if state=='error':
             self.status.configure(text='请求未完整完成；修改类接口请先核实服务端结果。')
         else:
             self.status.configure(text='登录成功' if action=='login' else f'HTTP {response.status} · {response.elapsed:.2f} 秒 · 请检查响应中的业务状态' if 200 <= response.status < 300 else http_error_reason(response.status))
+            preset=self.presets[self.choice.current()] if self.presets else {}
+            if action=='request' and preset.get('verification') and 200<=response.status<300:
+                from task_checks import verification_params
+                try:
+                    params=verification_params(preset,getattr(self,'last_request_params',{}),response)
+                    self.verification_context=dict(client=self.client,profile=self.profile(),preset=deepcopy(preset),params=params)
+                    self.status.configure(text='请求已受理，任务尚未核验，请点击“核验任务结果”。')
+                except ApiError:
+                    self.verification_context=dict(blocked=True)
+                    self.status.configure(text='触发结果无法关联任务，请人工查询核实，不要重复触发。')
+            elif action=='verify' and self.verification_context:
+                from task_checks import task_completed
+                done=task_completed(response,self.verification_context['preset']['verification'],self.verification_context['params'])
+                if done:self.verification_context=None
+                self.status.configure(text='任务最终完成条件已满足。' if done else '尚未满足最终完成条件，可再次核验。')
             self.logger.info('event=api_response status=%s',response.status if response else 'login')
-            if action=='login' or 200<=response.status<300:
+            if action=='reachability':
+                self.status.configure(text=f'服务已返回 HTTP {response.status}，仅证明 HTTP 可达，不代表登录或任务成功。')
+            if action=='login' or action in ('request','verify') and 200<=response.status<300:
                 try:
                     self.store.save(name,profile,remember)
                     self.refresh_profiles()

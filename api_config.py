@@ -26,6 +26,8 @@ def load_api_requests(path):
             raise ApiError('description 必须为文本，profile 必须为对象')
         if not isinstance(item.get('profile_name', '默认服务'), str) or not item.get('profile_name', '默认服务').strip():
             raise ApiError('profile_name 不能为空')
+        from site_profiles import apply_site_service
+        apply_site_service(item,path)
         from api_connections import validate_connections
         validate_connections(item)
         spec = item.get('request')
@@ -35,6 +37,8 @@ def load_api_requests(path):
             raise ApiError('body_type 仅支持 none、json、form、raw')
         if not isinstance(spec.get('query', {}), dict) or not isinstance(spec.get('headers', {}), dict):
             raise ApiError('query、headers 必须为对象')
+        from task_checks import validate_verification
+        validate_verification(item)
         params = item.get('params', [])
         if not isinstance(params, list) or len(params) > 8:
             raise ApiError('params 必须为数组，最多 8 个参数')
@@ -51,6 +55,11 @@ def load_api_requests(path):
             if p['type'] not in ('text', 'integer', 'boolean') or not isinstance(p['label'], str) or type(p['required']) is not bool or type(p['secret']) is not bool:
                 raise ApiError('参数支持 text/integer/boolean，required 和 secret 必须为布尔值')
         needed = set(TOKEN.findall(json.dumps(spec, ensure_ascii=False)))
+        if item.get('verification'):
+            check = item['verification']
+            verify_needed=set(TOKEN.findall(json.dumps(check['request'],ensure_ascii=False)))
+            allowed=keys | RESERVED | ({'task_id'} if check.get('task_id_path') else set())
+            if verify_needed-allowed:raise ApiError('核验请求引用了未定义参数；task_id 需要 task_id_path')
         if needed - (keys | RESERVED):
             raise ApiError('请求模板引用了未定义的参数')
     return items

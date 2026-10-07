@@ -35,6 +35,7 @@ class WorkflowPanel(ttk.Frame):
         self.flows = []
         self.drafts, self.results, self.clients, self.profile_cache = {}, {}, {}, {}
         self.api_mine_selections = {}
+        self.pending_checks = {}
         self.preview = None
         self.jobs = queue.Queue()
         self.controls = []
@@ -198,6 +199,7 @@ class WorkflowPanel(ttk.Frame):
     def start_flow(self, index):
         self.run = WorkflowRun(self.flows[index])
         self.drafts, self.results = {}, {}
+        self.pending_checks = {}
         self.preview = None
         self.description.configure(text=self.run.flow.get('description', ''))
         self.render()
@@ -215,6 +217,9 @@ class WorkflowPanel(ttk.Frame):
         if self.loading or not self.run:
             return
         self.preview = None
+        if self.run.index in self.pending_checks:
+            self.run.states[self.run.index]='uncertain'
+            self.pending_checks.pop(self.run.index,None)
         self.run.invalidate()
         self.status.configure(text='输入已变化，原结果仅供参考；请重新执行本步。后续已办步骤需重新核对。')
         self.refresh_nav()
@@ -322,6 +327,8 @@ class WorkflowPanel(ttk.Frame):
                 self.apply_button = self.button(actions, '2. 确认删除' if step['type']=='delete' else '2. 确认并提交', self.submit)
             reconcile_row = ttk.Frame(self.body)
             reconcile_row.pack(fill='x')
+            if step['type']=='api' and operation.get('verification'):
+                self.verify_button=self.button(actions,'检查任务完成结果',self.verify_task)
             self.reconcile_button = self.button(reconcile_row, '已核实服务端，允许重新操作', self.reconcile)
             self.reconcile_button.configure(style='Danger.TButton')
             result_box = ttk.Frame(self.body)
@@ -380,6 +387,9 @@ class WorkflowPanel(ttk.Frame):
         profile.update(self.profile_cache.get(self.profile_name, {}))
         self.api_profile = profile
         self.api_vars = {}
+        database_site=getattr(getattr(self.app,'mines',None),'active_id','')
+        if selected and database_site and selected!=database_site:
+            ttk.Label(self.body,text='注意：数据库与 API 当前选择的煤矿不同，请核对实际目标。',style='Danger.TLabel').pack(anchor='w')
         box = ttk.LabelFrame(self.body, text=f'接口服务：{operation.get("profile_name", "默认服务")}（鉴权方式由配置指定）', padding=8)
         box.pack(fill='x')
         for n, (key, label) in enumerate([('base_url', '服务地址（含应用路径）'), ('username', '用户名'), ('password', '原始密码'), ('token', 'Token / API Key')]):
@@ -399,7 +409,7 @@ class WorkflowPanel(ttk.Frame):
     def select_api_mine(self,event=None):
         if self.busy:
             return
-        if self.run.states[self.run.index]=='uncertain':
+        if self.run.states[self.run.index]=='uncertain' or self.run.index in self.pending_checks:
             self.render()
             return
         operation=self.run.step['operation']
@@ -461,7 +471,7 @@ class WorkflowPanel(ttk.Frame):
         if self.apply_button:
             self.apply_button.configure(state='normal' if not self.busy and self.preview is not None and self.preview.rows else 'disabled')
         if self.action_button:
-            self.action_button.configure(state='disabled' if self.busy or self.run.states[self.run.index] == 'uncertain' else 'normal')
+            self.action_button.configure(state='disabled' if self.busy or self.run.states[self.run.index] == 'uncertain' or self.run.index in self.pending_checks else 'normal')
         if self.reconcile_button:
             self.reconcile_button.configure(state='normal' if not self.busy and self.run.states[self.run.index] == 'uncertain' else 'disabled')
 
@@ -521,7 +531,7 @@ class WorkflowPanel(ttk.Frame):
             widget.configure(state='disabled' if busy else state)
         self.selector.configure(state='disabled' if busy else 'readonly')
         self.reload_button.configure(state='disabled' if busy else 'normal')
-        self.app.navigation.tab(self.app.advanced_tab, state='disabled' if busy else 'normal')
+        self.app.navigation.tab(self.app.advanced_tab, state='hidden' if getattr(self.app,'customer_mode',False) else 'disabled' if busy else 'normal')
         if busy:
             self.progress.grid()
             self.progress.start(12)
@@ -534,6 +544,7 @@ class WorkflowPanel(ttk.Frame):
 
     def launch(self, action, function, write=False):
         self.pending_action = action
+        if hasattr(self.app,'audit'):self.app.audit.record(action,'started')
         self.snapshot()
         if self.run.step['type'] in ('query', 'update', 'delete'):
             self.target_label = self.app.vars['host'].get() + ' / ' + self.app.vars['database'].get()
@@ -557,7 +568,7 @@ class WorkflowPanel(ttk.Frame):
             '再次执行', '本步骤已有执行记录。再次执行可能重复修改数据或触发任务。确认已核实并再次执行？', parent=self)
 
     def execute(self):
-        if self.busy or self.run.states[self.run.index] == 'uncertain':
+        if self.busy or self.run.states[self.run.index] == 'uncertain' or self.run.index in self.pending_checks:
             return
         if any(s not in ('done', 'skipped') for s in self.run.states[:self.run.index]):
             self.warn('请先返回并完成前面失效的步骤。')
@@ -594,11 +605,25 @@ class WorkflowPanel(ttk.Frame):
                 def request():
                     response = client.send(spec, params)
                     ok, status = api_outcome(response, step.get('success'))
-                    return ok, status, client.display(response, secrets), write
+                    context = None
+                    if ok and operation.get('verification'):
+                        from task_checks import verification_params
+                        context = dict(client=client, operation=operation, params=verification_params(operation,params,response))
+                    return ok, status, client.display(response, secrets), write, context
                 self.run.invalidate()
                 self.launch('api', request, write)
         except (OSError, ValueError, TypeError, KeyError) as exc:
             self.warn(str(exc) if isinstance(exc, (ApiError, UpdateError, WorkflowError, ValueError)) else '配置或输入格式错误，请联系配置人员。')
+
+    def verify_task(self):
+        if self.busy or self.run.index not in self.pending_checks:return
+        context=self.pending_checks[self.run.index]
+        def check():
+            from task_checks import task_completed
+            rule=context['operation']['verification']
+            response=context['client'].send(rule['request'],context['params'])
+            return task_completed(response,rule,context['params']),context['client'].display(response)
+        self.launch('verify',check)
 
     def login(self):
         if self.busy:
@@ -615,8 +640,13 @@ class WorkflowPanel(ttk.Frame):
         snapshot = self.preview
         config = snapshot.config
         deleting = is_delete(snapshot.operation)
-        warning = '永久删除预览中的全部整条记录，无法通过本工具撤销。' if deleting else '更新预览中的字段。'
+        from delete_review import delete_summary
+        summary=delete_summary(snapshot)
+        warning = summary+'\n永久删除预览中的全部整条记录，无法通过本工具撤销。' if deleting else '更新预览中的字段。'
         if not messagebox.askyesno('确认删除数据库记录' if deleting else '确认修改数据库', f'目标：{config["host"]} / {config["database"]}\n步骤：{self.run.step["title"]}\n匹配 {len(snapshot.rows)} 行。{warning}确认按预览提交？', parent=self):
+            return
+        from delete_review import confirm_large_delete
+        if not confirm_large_delete(self,snapshot,getattr(self.app,'ops_options',{}).get('delete_confirm_threshold',20)):
             return
         self.preview = None
         self.launch('apply', lambda: apply_update(snapshot), write=True)
@@ -692,15 +722,29 @@ class WorkflowPanel(ttk.Frame):
             self.show_result(text)
             self.run.ready()
             self.status.configure(text=text + ' 请确认后进入下一步。')
+        elif action == 'verify':
+            done,text=data
+            self.show_result(text)
+            if done:
+                self.pending_checks.pop(index,None)
+                self.run.ready()
+            self.status.configure(text='任务完成条件已满足，请核对后继续。' if done else '任务完成条件尚未满足；可再次检查，不会再次触发任务。')
         elif action == 'api':
-            ok, status, text, write = data
+            ok, status, text, write = data[:4]
+            context=data[4] if len(data)>4 else None
             self.results[index] = {'text': f'{stamp}\n{status}\n{text}'}
             self.show_result(self.results[index]['text'])
-            if ok:
+            if context:
+                self.pending_checks[index]=context
+                self.run.states[index]='pending'
+                status='请求已受理，任务尚未核验；点击“检查任务完成结果”。'
+            elif ok:
                 self.run.ready()
             else:
                 self.run.states[index] = 'uncertain' if write else 'failed'
             self.status.configure(text=status)
+        if hasattr(self.app,'audit'):
+            self.app.audit.record(action,'failed' if action=='api' and state=='ok' and not data[0] else state,len(data[1]) if state=='ok' and action=='query' else data[1] if state=='ok' and action=='apply' else None)
         self.set_busy(False)
         previous_scroll = getattr(self, 'scroll_id', None)
         if previous_scroll is not None:
