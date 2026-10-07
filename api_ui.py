@@ -33,6 +33,7 @@ class ApiWindow(tk.Toplevel):
         self.logger = logger
         self.drafts = Drafts(Path(profile_path).with_name("api_drafts.json"))
         self.active_name = None
+        self.mine_selections = {}
         self.busy = False
         self.client = None
         self.client_key = None
@@ -53,6 +54,10 @@ class ApiWindow(tk.Toplevel):
         reload_button = ttk.Button(top, text='重新加载接口配置', command=self.reload)
         reload_button.pack(side='left', padx=(8, 0))
         self.controls.append(reload_button)
+        from api_connections import DEFAULT
+        self.mine_choice = ttk.Combobox(body, state='readonly', values=[DEFAULT])
+        self.mine_choice.pack(fill='x', pady=(0, 8))
+        self.mine_choice.bind('<<ComboboxSelected>>', self.select_mine)
         self.description = ttk.Label(body, wraplength=1000)
         self.description.pack(anchor='w', pady=(0, 8))
         self.tabs = ttk.Notebook(body)
@@ -138,7 +143,7 @@ class ApiWindow(tk.Toplevel):
             messagebox.showerror('接口配置错误','无法读取 api_requests.json，请检查 JSON 格式和参数定义。',parent=self)
             return
         self.capture_draft()
-        previous = self.active_name
+        previous = self.presets[self.choice.current()]["name"] if self.presets and 0 <= self.choice.current() < len(self.presets) else None
         self.active_name = None
         self.presets = presets
         self.choice.configure(values=[p['name'] for p in presets])
@@ -166,14 +171,22 @@ class ApiWindow(tk.Toplevel):
         self.capture_draft()
         preset = self.presets[self.choice.current()]
         self.vars['profile_name'].set(preset.get('profile_name','默认服务'))
-        profile = dict(preset.get('profile',{}))
+        from api_connections import resolve_connection, DEFAULT
+        selected = self.mine_selections.get(preset['name'], preset.get('default_connection', ''))
+        if selected not in {c['id'] for c in preset.get('connections', [])}:
+            selected = ''
+        self.mine_selections[preset['name']] = selected
+        self.mine_choice.configure(values=[DEFAULT]+[c['name'] for c in preset.get('connections', [])])
+        self.mine_choice.set(next((c['name'] for c in preset.get('connections', []) if c['id']==selected),DEFAULT))
+        profile, self.mine_storage_key, draft_key = resolve_connection(preset, selected)
         try:
-            stored = self.store.load(self.vars['profile_name'].get())
+            stored = self.store.load(self.connection_key())
             if stored:
                 profile.update(stored)
         except (OSError,ValueError,TypeError):
             self.status.configure(text='已保存连接无法恢复，请重新填写并保存。')
         self.fill_profile(profile)
+        self.refresh_profiles()
         self.description.configure(text=preset.get('description',''))
         self.put_json(self.request_text,preset['request'])
         for widget in self.form.winfo_children():
@@ -188,7 +201,7 @@ class ApiWindow(tk.Toplevel):
             entry.grid(row=row*2+1,column=col,sticky='ew',padx=(0,12),pady=(3,6))
             self.form.columnconfigure(col,weight=1)
             self.parameter_widgets.append(entry)
-        self.active_name = preset['name']
+        self.active_name = draft_key
         default = self.draft_snapshot()
         try:
             draft = self.drafts.open(self.active_name, default)
@@ -230,7 +243,10 @@ class ApiWindow(tk.Toplevel):
 
     def refresh_profiles(self):
         try:
-            self.profile_choice.configure(values=sorted(self.store.read()))
+            current = self.presets[self.choice.current()] if self.presets and self.choice.current()>=0 else {}
+            selected = bool(self.mine_selections.get(current.get('name')))
+            values = [current.get('profile_name','默认服务')] if selected else sorted(k for k in self.store.read() if not k.startswith(('mine-api:','mine-draft:')))
+            self.profile_choice.configure(values=values, state='disabled' if self.busy else 'readonly' if selected else 'normal')
         except (OSError, ValueError, TypeError):
             self.status.configure(text='已保存连接列表无法读取，请检查配置文件。')
 
@@ -251,9 +267,25 @@ class ApiWindow(tk.Toplevel):
             self.client_key=key
         return self.client
 
+    def connection_key(self):
+        preset = self.presets[self.choice.current()] if self.presets else {}
+        return self.mine_storage_key if self.mine_selections.get(preset.get('name')) else self.vars['profile_name'].get()
+
+    def select_mine(self, event=None):
+        if self.busy or not self.presets:
+            return
+        preset=self.presets[self.choice.current()]
+        self.mine_selections[preset['name']]=next((c['id'] for c in preset.get('connections',[]) if c['name']==self.mine_choice.get()),'')
+        self.change_preset()
+        self.client, self.client_key = None, None
+        self.output.configure(state='normal')
+        self.output.delete('1.0','end')
+        self.output.configure(state='disabled')
+        self.status.configure(text='煤矿连接已切换，旧登录会话已清除；请核对目标并重新登录。')
+
     def save(self):
         try:
-            self.store.save(self.vars['profile_name'].get(),self.profile(),self.remember.get())
+            self.store.save(self.connection_key(),self.profile(),self.remember.get())
             self.refresh_profiles()
             self.status.configure(text='当前服务连接已保存；请求修改可通过“保存接口草稿（加密）”保存。')
         except (OSError,ValueError,TypeError):
@@ -261,7 +293,7 @@ class ApiWindow(tk.Toplevel):
 
     def restore(self):
         try:
-            profile=self.store.load(self.vars['profile_name'].get())
+            profile=self.store.load(self.connection_key())
             if profile is None:
                 raise ApiError('没有这个名称的已保存连接')
             if not messagebox.askyesno('恢复连接', '将替换当前服务与鉴权设置，是否继续？', parent=self):
@@ -313,6 +345,8 @@ class ApiWindow(tk.Toplevel):
             widget.configure(state='disabled' if busy else 'normal')
         self.choice.configure(state='disabled' if busy else 'readonly')
         self.auth.configure(state='disabled' if busy else 'readonly')
+        self.mine_choice.configure(state='disabled' if busy else 'readonly')
+        self.refresh_profiles()
         for widget in (self.request_text,self.login_text):
             widget.configure(state='disabled' if busy else 'normal')
         if busy:
@@ -321,7 +355,7 @@ class ApiWindow(tk.Toplevel):
             self.progress.stop()
 
     def run(self,action,client,function,secrets=()):
-        name=self.vars['profile_name'].get()
+        name=self.connection_key()
         remember=self.remember.get()
         self.set_busy(True)
         self.status.configure(text='正在登录…' if action=='login' else '正在请求，请勿重复发送…')

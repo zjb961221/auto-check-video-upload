@@ -24,4 +24,6 @@ Copy-Item DELETES.md dist\DELETES.md -Force
 Copy-Item database_profiles.json dist\database_profiles.json -Force
 Copy-Item database_profiles.example.json dist\database_profiles.example.json -Force
 Copy-Item DATABASE_PROFILES.md dist\DATABASE_PROFILES.md -Force
+Copy-Item api_mines.example.json dist\api_mines.example.json -Force
+Copy-Item API_MINES.md dist\API_MINES.md -Force
 Write-Host 'Done: distribute ClientOpsTool.exe together with all configuration files and documents from dist.'

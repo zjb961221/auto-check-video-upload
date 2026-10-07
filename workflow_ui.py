@@ -34,6 +34,7 @@ class WorkflowPanel(ttk.Frame):
         self.run = None
         self.flows = []
         self.drafts, self.results, self.clients, self.profile_cache = {}, {}, {}, {}
+        self.api_mine_selections = {}
         self.preview = None
         self.jobs = queue.Queue()
         self.controls = []
@@ -361,7 +362,17 @@ class WorkflowPanel(ttk.Frame):
 
     def api_form(self, operation):
         self.profile_name = operation.get('profile_name', '默认服务')
-        profile = deepcopy(operation.get('profile', {}))
+        from api_connections import resolve_connection, DEFAULT
+        selected=self.api_mine_selections.get(operation['name'],operation.get('default_connection',''))
+        if selected not in {c['id'] for c in operation.get('connections',[])}:
+            selected=''
+        self.api_mine_selections[operation['name']]=selected
+        profile,self.profile_name,_=resolve_connection(operation,selected)
+        self.api_mine_choice=ttk.Combobox(self.body,state='readonly',values=[DEFAULT]+[c['name'] for c in operation.get('connections',[])])
+        self.api_mine_choice.set(next((c['name'] for c in operation.get('connections',[]) if c['id']==selected),DEFAULT))
+        self.api_mine_choice.pack(fill='x',pady=(0,6))
+        self.api_mine_choice.bind('<<ComboboxSelected>>',self.select_api_mine)
+        self.controls.append((self.api_mine_choice,'readonly'))
         try:
             profile.update(self.store.load(self.profile_name) or {})
         except (OSError, ValueError, TypeError):
@@ -369,7 +380,7 @@ class WorkflowPanel(ttk.Frame):
         profile.update(self.profile_cache.get(self.profile_name, {}))
         self.api_profile = profile
         self.api_vars = {}
-        box = ttk.LabelFrame(self.body, text=f'接口服务：{self.profile_name}（鉴权方式由配置指定）', padding=8)
+        box = ttk.LabelFrame(self.body, text=f'接口服务：{operation.get("profile_name", "默认服务")}（鉴权方式由配置指定）', padding=8)
         box.pack(fill='x')
         for n, (key, label) in enumerate([('base_url', '服务地址（含应用路径）'), ('username', '用户名'), ('password', '原始密码'), ('token', 'Token / API Key')]):
             var = self.api_vars[key] = tk.StringVar(value=str(profile.get(key, '')))
@@ -384,6 +395,23 @@ class WorkflowPanel(ttk.Frame):
         self.button(row, '保存 API 连接', self.save_api)
         if profile.get('auth_type') in ('login_token', 'login_cookie'):
             self.button(row, '登录 / 获取会话', self.login)
+
+    def select_api_mine(self,event=None):
+        if self.busy:
+            return
+        if self.run.states[self.run.index]=='uncertain':
+            self.render()
+            return
+        operation=self.run.step['operation']
+        self.snapshot()
+        self.api_mine_selections[operation['name']]=next((c['id'] for c in operation.get('connections',[]) if c['name']==self.api_mine_choice.get()),'')
+        self.clients.clear()
+        self.drafts.pop(self.run.index,None)
+        self.results.pop(self.run.index,None)
+        self.preview=None
+        self.run.invalidate()
+        self.render()
+        self.status.configure(text='煤矿 API 连接已切换，旧会话已清除，请核对目标并重新登录。')
 
     def current_profile(self):
         return dict(self.api_profile, **{k: v.get() for k, v in self.api_vars.items()})

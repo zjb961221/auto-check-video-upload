@@ -39,6 +39,8 @@ jobs:
             dist/database_profiles.json
             dist/database_profiles.example.json
             dist/DATABASE_PROFILES.md
+            dist/api_mines.example.json
+            dist/API_MINES.md
             dist/PARAMETERS.md
             dist/README.md
           if-no-files-found: error

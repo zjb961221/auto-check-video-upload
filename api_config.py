@@ -26,6 +26,8 @@ def load_api_requests(path):
             raise ApiError('description 必须为文本，profile 必须为对象')
         if not isinstance(item.get('profile_name', '默认服务'), str) or not item.get('profile_name', '默认服务').strip():
             raise ApiError('profile_name 不能为空')
+        from api_connections import validate_connections
+        validate_connections(item)
         spec = item.get('request')
         if not isinstance(spec, dict) or spec.get('method', 'GET') not in METHODS or not isinstance(spec.get('path', ''), str):
             raise ApiError('request 必须包含合法的 method 和文本 path')
