@@ -444,10 +444,11 @@ class ApiWindow(tk.Toplevel):
 
     def clear_session(self):
         if self.verification_context:
-            if not messagebox.askyesno('任务结果待核实','请先核实服务端任务。确认已核实并清除当前会话与重复触发限制？',parent=self):return
+            if not messagebox.askyesno('任务结果待核实','请先核实服务端任务。确认已核实并清除当前会话与重复触发限制？',parent=self):return False
             self.verification_context=None
         self.client,self.client_key=None,None
         self.status.configure(text='已清除本次登录会话，下次调用需要重新登录。')
+        return True
 
     def poll(self):
         guarded_poll(self, self.consume_result, self.recover_result)
@@ -502,7 +503,7 @@ class ApiWindow(tk.Toplevel):
         self.capture_draft()
         if self.drafts.dirty() and not messagebox.askyesno('存在未保存的接口修改', '有接口修改尚未保存为草稿。关闭将丢弃这些修改，是否关闭？\n如需保留，请取消后切换到修改过的接口并保存草稿。', parent=self):
             return
-        self.clear_session()
+        if not self.clear_session():return
         self.grab_release()
         self.destroy()
 
